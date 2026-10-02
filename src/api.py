@@ -165,3 +165,59 @@ async def endpoint_subir_documento(
 def endpoint_eliminar_documento(project_id: str, nombre: str):
     eliminar_documento(project_id, nombre)
     return {"status": "ok"}
+
+
+# ===== EXPORTAR CHAT =====
+
+@app.get("/chats/{chat_id}/export")
+def endpoint_exportar_chat(chat_id: str):
+    """Exporta el historial de un chat en formato Markdown."""
+    from fastapi.responses import PlainTextResponse
+    from src.core.history import obtener_historial
+
+    historial = obtener_historial(chat_id, limit=1000)
+    if not historial:
+        raise HTTPException(status_code=404, detail="Chat vacío o no encontrado")
+
+    # Buscar título del chat
+    from src.core.history import listar_chats
+    titulo = "Chat"
+    project_id = None
+    conn = __import__("sqlite3").connect("niah_history.db")
+    c = conn.cursor()
+    c.execute("SELECT titulo, project_id FROM chats WHERE id = ?", (chat_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        titulo = row[0]
+        project_id = row[1]
+
+    # Construir Markdown
+    from datetime import datetime
+    lineas = [
+        f"# {titulo}",
+        "",
+        f"**Proyecto:** {project_id or 'N/A'}  ",
+        f"**Chat ID:** {chat_id}  ",
+        f"**Exportado:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "---",
+        "",
+    ]
+
+    for msg in historial:
+        autor = "**Tú**" if msg["role"] == "user" else "**NIAH**"
+        modelo = f" _(modelo: {msg['model']})_" if msg.get("model") else ""
+        lineas.append(f"### {autor}{modelo}")
+        lineas.append("")
+        lineas.append(msg["content"])
+        lineas.append("")
+
+    contenido = "\n".join(lineas)
+    return PlainTextResponse(
+        content=contenido,
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition": f'attachment; filename="{titulo.replace(" ", "_")}.md"'
+        },
+    )

@@ -12,6 +12,7 @@ import {
   Paperclip,
   FileText,
   X,
+  Download,
 } from "lucide-react";
 import "./App.css";
 
@@ -228,6 +229,11 @@ function App() {
     await cargarDocumentos(proyectoActivo.id);
   };
 
+  const exportarChat = () => {
+    if (!chatActivo) return;
+    window.open(`${API_URL}/chats/${chatActivo.id}/export`, "_blank");
+  };
+
   const speak = (text: string) => {
     if (!voiceEnabled || !("speechSynthesis" in window)) return;
     const u = new SpeechSynthesisUtterance(text);
@@ -420,6 +426,16 @@ function App() {
               >
                 <Paperclip size={14} />
                 <span>Archivos ({documentos.length})</span>
+              </button>
+            )}
+            {chatActivo && messages.length > 0 && (
+              <button
+                className="btn-docs"
+                onClick={exportarChat}
+                title="Exportar chat a Markdown"
+              >
+                <Download size={14} />
+                <span>Exportar</span>
               </button>
             )}
             <label className="voice-toggle">
