@@ -19,3 +19,7 @@ frontend/.vite/
 
 # Sistema
 .DS_Store
+
+# RAG - ChromaDB y documentos
+rag_chroma/
+rag_docs/

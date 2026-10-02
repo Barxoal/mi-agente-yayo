@@ -9,6 +9,9 @@ import {
   Volume2,
   Send,
   Sparkles,
+  Paperclip,
+  FileText,
+  X,
 } from "lucide-react";
 import "./App.css";
 
@@ -31,6 +34,11 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   model?: string;
+}
+
+interface Documento {
+  nombre: string;
+  size: number;
 }
 
 type SpeechRecognitionType = {
@@ -61,6 +69,9 @@ function App() {
   const [modalProyecto, setModalProyecto] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoTipo, setNuevoTipo] = useState("script");
+  const [documentos, setDocumentos] = useState<Documento[]>([]);
+  const [modalDocs, setModalDocs] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
@@ -71,10 +82,12 @@ function App() {
   useEffect(() => {
     if (proyectoActivo) {
       cargarChats(proyectoActivo.id);
+      cargarDocumentos(proyectoActivo.id);
     } else {
       setChats([]);
       setChatActivo(null);
       setMessages([]);
+      setDocumentos([]);
     }
   }, [proyectoActivo]);
 
@@ -122,6 +135,12 @@ function App() {
         })
       )
     );
+  };
+
+  const cargarDocumentos = async (projectId: string) => {
+    const r = await fetch(`${API_URL}/projects/${projectId}/documents`);
+    const data = await r.json();
+    setDocumentos(data.documentos || []);
   };
 
   const crearProyecto = async () => {
@@ -177,6 +196,38 @@ function App() {
     if (proyectoActivo) await cargarChats(proyectoActivo.id);
   };
 
+  const subirDocumento = async (file: File) => {
+    if (!proyectoActivo) return;
+    setSubiendo(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const r = await fetch(
+        `${API_URL}/projects/${proyectoActivo.id}/documents`,
+        { method: "POST", body: formData }
+      );
+      if (r.ok) {
+        await cargarDocumentos(proyectoActivo.id);
+      } else {
+        alert("Error al subir el archivo");
+      }
+    } catch {
+      alert("Error de conexión");
+    } finally {
+      setSubiendo(false);
+    }
+  };
+
+  const eliminarDocumento = async (nombre: string) => {
+    if (!proyectoActivo) return;
+    if (!confirm(`¿Eliminar "${nombre}"?`)) return;
+    await fetch(
+      `${API_URL}/projects/${proyectoActivo.id}/documents/${nombre}`,
+      { method: "DELETE" }
+    );
+    await cargarDocumentos(proyectoActivo.id);
+  };
+
   const speak = (text: string) => {
     if (!voiceEnabled || !("speechSynthesis" in window)) return;
     const u = new SpeechSynthesisUtterance(text);
@@ -226,7 +277,11 @@ function App() {
       const response = await fetch(`${API_URL}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mensaje: prompt, chat_id: chatActivo.id }),
+        body: JSON.stringify({
+          mensaje: prompt,
+          chat_id: chatActivo.id,
+          project_id: proyectoActivo?.id,
+        }),
       });
 
       const reader = response.body?.getReader();
@@ -357,6 +412,16 @@ function App() {
             </span>
           </div>
           <div className="header-right">
+            {proyectoActivo && (
+              <button
+                className="btn-docs"
+                onClick={() => setModalDocs(true)}
+                title="Documentos del proyecto"
+              >
+                <Paperclip size={14} />
+                <span>Archivos ({documentos.length})</span>
+              </button>
+            )}
             <label className="voice-toggle">
               <input
                 type="checkbox"
@@ -388,7 +453,10 @@ function App() {
           {proyectoActivo && chatActivo && messages.length === 0 && (
             <div className="empty">
               <p>Chat vacío</p>
-              <p className="hint">Escribe tu primer mensaje a continuación.</p>
+              <p className="hint">
+                Escribe tu primer mensaje o sube documentos al proyecto para
+                que NIAH los consulte.
+              </p>
             </div>
           )}
           {messages.map((msg, i) => (
@@ -472,6 +540,73 @@ function App() {
               <button className="primary" onClick={crearProyecto}>
                 <Plus size={14} />
                 <span>Crear</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalDocs && proyectoActivo && (
+        <div className="modal-overlay" onClick={() => setModalDocs(false)}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">
+              <Paperclip size={20} />
+              <h3>Documentos de {proyectoActivo.nombre}</h3>
+            </div>
+            <p className="modal-hint">
+              Sube archivos PDF, TXT o Markdown. NIAH los leerá y usará su
+              contenido para responder tus preguntas.
+            </p>
+
+            <label className="upload-zone">
+              <input
+                type="file"
+                accept=".pdf,.txt,.md,.py,.js,.ts,.json"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) subirDocumento(file);
+                }}
+                disabled={subiendo}
+                style={{ display: "none" }}
+              />
+              <Paperclip size={20} />
+              <span>
+                {subiendo
+                  ? "Subiendo..."
+                  : "Haz clic para seleccionar un archivo"}
+              </span>
+            </label>
+
+            <div className="docs-lista">
+              {documentos.length === 0 && (
+                <p className="empty-sidebar">
+                  Aún no hay documentos en este proyecto.
+                </p>
+              )}
+              {documentos.map((d) => (
+                <div key={d.nombre} className="doc-item">
+                  <div className="doc-info">
+                    <FileText size={14} />
+                    <span className="doc-nombre">{d.nombre}</span>
+                    <span className="doc-size">
+                      {(d.size / 1024).toFixed(1)} KB
+                    </span>
+                  </div>
+                  <button
+                    className="btn-del"
+                    onClick={() => eliminarDocumento(d.nombre)}
+                    title="Eliminar documento"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="modal-actions">
+              <button onClick={() => setModalDocs(false)}>
+                <X size={14} />
+                <span>Cerrar</span>
               </button>
             </div>
           </div>

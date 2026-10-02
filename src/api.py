@@ -1,6 +1,6 @@
 # src/api.py
 import uuid
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -12,8 +12,11 @@ from src.core.history import (
     obtener_historial, limpiar_historial,
 )
 from src.core.builder import crear_estructura_proyecto
+from src.rag.indexer import (
+    indexar_documento, listar_documentos, eliminar_documento,
+)
 
-app = FastAPI(title="NIAH API", version="3.0.0")
+app = FastAPI(title="NIAH API", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +36,7 @@ def startup():
 class ChatRequest(BaseModel):
     mensaje: str
     chat_id: str
+    project_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -71,11 +75,8 @@ def endpoint_listar_proyectos():
 @app.post("/projects")
 def endpoint_crear_proyecto(req: ProyectoRequest):
     project_id = str(uuid.uuid4())[:8]
-    # Crear estructura en disco
     resultado = crear_estructura_proyecto(req.nombre, req.tipo)
-    # Registrar en DB
     crear_proyecto(project_id, req.nombre, req.tipo)
-    # Crear primer chat por defecto
     chat_id = str(uuid.uuid4())[:8]
     crear_chat(chat_id, project_id, "Chat inicial")
     return {
@@ -115,14 +116,15 @@ def endpoint_eliminar_chat(chat_id: str):
 
 @app.post("/chat", response_model=ChatResponse)
 def endpoint_chat(request: ChatRequest):
-    resultado = niah.chat(request.mensaje, request.chat_id)
+    resultado = niah.chat(request.mensaje, request.chat_id, request.project_id)
     return ChatResponse(**resultado)
 
 
 @app.post("/chat/stream")
 def endpoint_chat_stream(request: ChatRequest):
     return StreamingResponse(
-        niah.stream(request.mensaje, request.chat_id), media_type="text/plain"
+        niah.stream(request.mensaje, request.chat_id, request.project_id),
+        media_type="text/plain",
     )
 
 
@@ -134,4 +136,32 @@ def endpoint_historial(chat_id: str):
 @app.delete("/chats/{chat_id}/history")
 def endpoint_limpiar(chat_id: str):
     limpiar_historial(chat_id)
+    return {"status": "ok"}
+
+
+# ===== RAG =====
+
+@app.get("/projects/{project_id}/documents")
+def endpoint_listar_documentos(project_id: str):
+    return {"documentos": listar_documentos(project_id)}
+
+
+@app.post("/projects/{project_id}/documents")
+async def endpoint_subir_documento(
+    project_id: str,
+    file: UploadFile = File(...),
+):
+    contenido = await file.read()
+    try:
+        resultado = indexar_documento(project_id, file.filename, contenido)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if "error" in resultado:
+        raise HTTPException(status_code=400, detail=resultado["error"])
+    return resultado
+
+
+@app.delete("/projects/{project_id}/documents/{nombre}")
+def endpoint_eliminar_documento(project_id: str, nombre: str):
+    eliminar_documento(project_id, nombre)
     return {"status": "ok"}

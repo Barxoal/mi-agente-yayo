@@ -234,6 +234,25 @@ header {
   color: #e2e8f0;
 }
 
+.btn-docs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #334155;
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.btn-docs:hover {
+  background: #475569;
+}
+
 .chat {
   flex: 1;
   overflow-y: auto;
@@ -385,6 +404,10 @@ footer button:disabled {
   border: 1px solid #334155;
 }
 
+.modal-wide {
+  width: 520px;
+}
+
 .modal-title {
   display: flex;
   align-items: center;
@@ -463,4 +486,66 @@ footer button:disabled {
 
 .modal-actions button.primary:hover {
   background: #2563eb;
+}
+
+/* ===== RAG / Documentos ===== */
+.upload-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px dashed #475569;
+  border-radius: 8px;
+  padding: 1.5rem;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.upload-zone:hover {
+  border-color: #3b82f6;
+  color: #60a5fa;
+}
+
+.docs-lista {
+  max-height: 250px;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+.doc-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  background: #0f172a;
+  border-radius: 6px;
+  margin-bottom: 0.4rem;
+}
+
+.doc-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.doc-nombre {
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-size {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-left: 0.5rem;
+}
+
+.doc-item .btn-del {
+  opacity: 1;
 }

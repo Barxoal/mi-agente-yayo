@@ -3,21 +3,38 @@ import ollama
 from src.config import NIAH_PROMPT
 from src.core.router import elegir_modelo
 from src.core.history import init_db, guardar_mensaje, obtener_historial
+from src.rag.retriever import buscar_contexto
 
 
-def _mensajes(mensaje: str, chat_id: str) -> list:
+def _mensajes(mensaje: str, chat_id: str, project_id: str = None) -> list:
+    """Construye los mensajes incluyendo historial y contexto RAG (si hay)."""
     historial = obtener_historial(chat_id, limit=20)
     mensajes = [{"role": "system", "content": NIAH_PROMPT}]
+
+    # Si hay project_id, buscar contexto en documentos indexados
+    if project_id:
+        contexto = buscar_contexto(project_id, mensaje)
+        if contexto:
+            mensajes.append({
+                "role": "system",
+                "content": (
+                    "A continuación tienes fragmentos de documentos del proyecto. "
+                    "Úsalos para responder la pregunta si son relevantes. "
+                    "Si la información no está en ellos, di que no lo sabes con certeza.\n\n"
+                    f"{contexto}"
+                ),
+            })
+
     for h in historial:
         mensajes.append({"role": h["role"], "content": h["content"]})
     mensajes.append({"role": "user", "content": mensaje})
     return mensajes
 
 
-def chat(mensaje: str, chat_id: str) -> dict:
+def chat(mensaje: str, chat_id: str, project_id: str = None) -> dict:
     init_db()
     modelo = elegir_modelo(mensaje)
-    mensajes = _mensajes(mensaje, chat_id)
+    mensajes = _mensajes(mensaje, chat_id, project_id)
 
     guardar_mensaje(chat_id, "user", mensaje)
     respuesta = ollama.chat(model=modelo, messages=mensajes)
@@ -27,10 +44,10 @@ def chat(mensaje: str, chat_id: str) -> dict:
     return {"respuesta": contenido, "modelo": modelo}
 
 
-def stream(mensaje: str, chat_id: str):
+def stream(mensaje: str, chat_id: str, project_id: str = None):
     init_db()
     modelo = elegir_modelo(mensaje)
-    mensajes = _mensajes(mensaje, chat_id)
+    mensajes = _mensajes(mensaje, chat_id, project_id)
     guardar_mensaje(chat_id, "user", mensaje)
 
     stream_resp = ollama.chat(model=modelo, messages=mensajes, stream=True)
