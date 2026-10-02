@@ -13,11 +13,14 @@ import {
   FileText,
   X,
   Download,
+  LogOut,
+  Menu,
 } from "lucide-react";
 import MessageContent from "./MessageContent";
+import Login from "./Login";
 import "./App.css";
 
-const API_URL = "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 interface Proyecto {
   id: string;
@@ -59,6 +62,9 @@ type SpeechRecognitionType = {
 };
 
 function App() {
+  const [token, setToken] = useState<string | null>(() =>
+    localStorage.getItem("niah_token")
+  );
   const [proyectos, setProyectos] = useState<Proyecto[]>([]);
   const [proyectoActivo, setProyectoActivo] = useState<Proyecto | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
@@ -74,12 +80,34 @@ function App() {
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [modalDocs, setModalDocs] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
+  const [sidebarAbierto, setSidebarAbierto] = useState(false);
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
+  const apiFetch = async (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(url, { ...options, headers });
+  };
+
+  const handleLogin = (nuevoToken: string) => {
+    localStorage.setItem("niah_token", nuevoToken);
+    setToken(nuevoToken);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("niah_token");
+    setToken(null);
+    setProyectos([]);
+    setProyectoActivo(null);
+    setChats([]);
+    setChatActivo(null);
+    setMessages([]);
+  };
+
   useEffect(() => {
-    cargarProyectos();
-  }, []);
+    if (token) cargarProyectos();
+  }, [token]);
 
   useEffect(() => {
     if (proyectoActivo) {
@@ -108,13 +136,14 @@ function App() {
   }, [messages]);
 
   const cargarProyectos = async () => {
-    const r = await fetch(`${API_URL}/projects`);
+    const r = await apiFetch(`${API_URL}/projects`);
+    if (r.status === 401) return handleLogout();
     const data = await r.json();
     setProyectos(data.proyectos || []);
   };
 
   const cargarChats = async (projectId: string) => {
-    const r = await fetch(`${API_URL}/projects/${projectId}/chats`);
+    const r = await apiFetch(`${API_URL}/projects/${projectId}/chats`);
     const data = await r.json();
     const lista = data.chats || [];
     setChats(lista);
@@ -126,7 +155,7 @@ function App() {
   };
 
   const cargarHistorial = async (chatId: string) => {
-    const r = await fetch(`${API_URL}/chats/${chatId}/history`);
+    const r = await apiFetch(`${API_URL}/chats/${chatId}/history`);
     const data = await r.json();
     setMessages(
       (data.historial || []).map(
@@ -140,14 +169,14 @@ function App() {
   };
 
   const cargarDocumentos = async (projectId: string) => {
-    const r = await fetch(`${API_URL}/projects/${projectId}/documents`);
+    const r = await apiFetch(`${API_URL}/projects/${projectId}/documents`);
     const data = await r.json();
     setDocumentos(data.documentos || []);
   };
 
   const crearProyecto = async () => {
     if (!nuevoNombre.trim()) return;
-    const r = await fetch(`${API_URL}/projects`, {
+    const r = await apiFetch(`${API_URL}/projects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nombre: nuevoNombre, tipo: nuevoTipo }),
@@ -156,7 +185,7 @@ function App() {
     setModalProyecto(false);
     setNuevoNombre("");
     await cargarProyectos();
-    const nuevosProyectos = await (await fetch(`${API_URL}/projects`)).json();
+    const nuevosProyectos = await (await apiFetch(`${API_URL}/projects`)).json();
     const proyectoNuevo = nuevosProyectos.proyectos.find(
       (p: Proyecto) => p.id === data.project_id
     );
@@ -166,10 +195,8 @@ function App() {
   const eliminarProyecto = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm("¿Eliminar este proyecto y todos sus chats?")) return;
-    await fetch(`${API_URL}/projects/${id}`, { method: "DELETE" });
-    if (proyectoActivo?.id === id) {
-      setProyectoActivo(null);
-    }
+    await apiFetch(`${API_URL}/projects/${id}`, { method: "DELETE" });
+    if (proyectoActivo?.id === id) setProyectoActivo(null);
     await cargarProyectos();
   };
 
@@ -177,7 +204,7 @@ function App() {
     if (!proyectoActivo) return;
     const titulo = prompt("Nombre del nuevo chat:", "Nuevo chat");
     if (!titulo) return;
-    const r = await fetch(`${API_URL}/projects/${proyectoActivo.id}/chats`, {
+    const r = await apiFetch(`${API_URL}/projects/${proyectoActivo.id}/chats`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ titulo }),
@@ -185,7 +212,7 @@ function App() {
     const data = await r.json();
     await cargarChats(proyectoActivo.id);
     const nuevos = await (
-      await fetch(`${API_URL}/projects/${proyectoActivo.id}/chats`)
+      await apiFetch(`${API_URL}/projects/${proyectoActivo.id}/chats`)
     ).json();
     const chatNuevo = nuevos.chats.find((c: Chat) => c.id === data.chat_id);
     if (chatNuevo) setChatActivo(chatNuevo);
@@ -194,7 +221,7 @@ function App() {
   const eliminarChat = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm("¿Eliminar este chat?")) return;
-    await fetch(`${API_URL}/chats/${id}`, { method: "DELETE" });
+    await apiFetch(`${API_URL}/chats/${id}`, { method: "DELETE" });
     if (proyectoActivo) await cargarChats(proyectoActivo.id);
   };
 
@@ -204,7 +231,7 @@ function App() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const r = await fetch(
+      const r = await apiFetch(
         `${API_URL}/projects/${proyectoActivo.id}/documents`,
         { method: "POST", body: formData }
       );
@@ -223,7 +250,7 @@ function App() {
   const eliminarDocumento = async (nombre: string) => {
     if (!proyectoActivo) return;
     if (!confirm(`¿Eliminar "${nombre}"?`)) return;
-    await fetch(
+    await apiFetch(
       `${API_URL}/projects/${proyectoActivo.id}/documents/${nombre}`,
       { method: "DELETE" }
     );
@@ -231,8 +258,17 @@ function App() {
   };
 
   const exportarChat = () => {
-    if (!chatActivo) return;
-    window.open(`${API_URL}/chats/${chatActivo.id}/export`, "_blank");
+    if (!chatActivo || !token) return;
+    apiFetch(`${API_URL}/chats/${chatActivo.id}/export`)
+      .then((r) => r.blob())
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${chatActivo.titulo.replace(/\s+/g, "_")}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
   };
 
   const speak = (text: string) => {
@@ -281,7 +317,7 @@ function App() {
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
-      const response = await fetch(`${API_URL}/chat/stream`, {
+      const response = await apiFetch(`${API_URL}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -330,9 +366,29 @@ function App() {
     }
   };
 
+  const seleccionarProyecto = (p: Proyecto) => {
+    setProyectoActivo(p);
+    if (window.innerWidth <= 768) setSidebarAbierto(false);
+  };
+
+  const seleccionarChat = (c: Chat) => {
+    setChatActivo(c);
+    if (window.innerWidth <= 768) setSidebarAbierto(false);
+  };
+
+  if (!token) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <div className="layout">
-      <aside className="sidebar">
+      {sidebarAbierto && (
+        <div
+          className="sidebar-overlay open"
+          onClick={() => setSidebarAbierto(false)}
+        />
+      )}
+      <aside className={`sidebar ${sidebarAbierto ? "open" : ""}`}>
         <div className="sidebar-header">
           <h2>Proyectos</h2>
           <button
@@ -358,7 +414,7 @@ function App() {
                 className={`proyecto-item ${
                   proyectoActivo?.id === p.id ? "active" : ""
                 }`}
-                onClick={() => setProyectoActivo(p)}
+                onClick={() => seleccionarProyecto(p)}
               >
                 <span className="proyecto-nombre">
                   <FolderClosed size={14} />
@@ -380,7 +436,7 @@ function App() {
                       className={`chat-item ${
                         chatActivo?.id === c.id ? "active" : ""
                       }`}
-                      onClick={() => setChatActivo(c)}
+                      onClick={() => seleccionarChat(c)}
                     >
                       <span>
                         <MessageSquare size={13} />
@@ -409,6 +465,13 @@ function App() {
       <main className="main">
         <header>
           <div className="header-left">
+            <button
+              className="btn-menu"
+              onClick={() => setSidebarAbierto(!sidebarAbierto)}
+              title="Menú"
+            >
+              <Menu size={16} />
+            </button>
             <h1>NIAH</h1>
             <span className="subtitle">
               {proyectoActivo
@@ -448,6 +511,13 @@ function App() {
               <Volume2 size={14} />
               <span>Voz</span>
             </label>
+            <button
+              className="btn-logout"
+              onClick={handleLogout}
+              title="Cerrar sesión"
+            >
+              <LogOut size={14} />
+            </button>
           </div>
         </header>
 
