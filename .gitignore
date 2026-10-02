@@ -25,3 +25,4 @@ rag_chroma/
 rag_docs/
 frontend/.env.local
 *.deb
+backups/
