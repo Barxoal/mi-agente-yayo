@@ -14,6 +14,7 @@ import {
   X,
   Download,
 } from "lucide-react";
+import MessageContent from "./MessageContent";
 import "./App.css";
 
 const API_URL = "http://localhost:8000";
@@ -478,7 +479,9 @@ function App() {
           {messages.map((msg, i) => (
             <div key={i} className={`message ${msg.role}`}>
               <strong>{msg.role === "user" ? "Tú" : "NIAH"}:</strong>
-              <p>{msg.content}</p>
+              <div className="message-body">
+                <MessageContent content={msg.content} />
+              </div>
             </div>
           ))}
         </section>
