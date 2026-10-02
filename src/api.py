@@ -1,6 +1,9 @@
 # src/api.py
 import uuid
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+import sqlite3
+from datetime import datetime
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -10,16 +13,19 @@ from src.core.history import (
     init_db, crear_proyecto, listar_proyectos, eliminar_proyecto,
     crear_chat, listar_chats, eliminar_chat,
     obtener_historial, limpiar_historial,
+    verificar_propietario, verificar_chat_propietario,
 )
 from src.core.builder import crear_estructura_proyecto
 from src.rag.indexer import (
     indexar_documento, listar_documentos, eliminar_documento,
 )
 from src.auth import (
-    crear_token, verificar_credenciales, obtener_usuario_actual,
+    init_users_table, crear_usuario, verificar_credenciales,
+    crear_token, obtener_usuario_actual, obtener_rol,
+    listar_usuarios, eliminar_usuario,
 )
 
-app = FastAPI(title="NIAH API", version="5.0.0")
+app = FastAPI(title="NIAH API", version="6.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,11 +38,17 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+    init_users_table()
 
 
 # ===== MODELOS =====
 
 class LoginRequest(BaseModel):
+    usuario: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
     usuario: str
     password: str
 
@@ -80,24 +92,55 @@ def health():
 
 @app.post("/auth/login", response_model=TokenResponse)
 def login(req: LoginRequest):
-    """Valida usuario/contraseña y devuelve un JWT."""
     if not verificar_credenciales(req.usuario, req.password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    token = crear_token(req.usuario)
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=crear_token(req.usuario))
+
+
+@app.post("/auth/register", response_model=TokenResponse)
+def register(req: RegisterRequest):
+    if len(req.usuario) < 3:
+        raise HTTPException(status_code=400, detail="Usuario muy corto (mín. 3)")
+    if len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="Contraseña muy corta (mín. 4)")
+    if not crear_usuario(req.usuario, req.password, "user"):
+        raise HTTPException(status_code=400, detail="El usuario ya existe")
+    return TokenResponse(access_token=crear_token(req.usuario))
 
 
 @app.get("/auth/me")
 def me(usuario: str = Depends(obtener_usuario_actual)):
-    """Verifica que el token es válido."""
-    return {"usuario": usuario}
+    return {"usuario": usuario, "rol": obtener_rol(usuario)}
 
 
-# ===== PROTEGIDOS (requieren token) =====
+# ===== USUARIOS (solo admin) =====
+
+@app.get("/users")
+def endpoint_listar_usuarios(usuario: str = Depends(obtener_usuario_actual)):
+    if obtener_rol(usuario) != "admin":
+        raise HTTPException(status_code=403, detail="Solo admins")
+    return {"usuarios": listar_usuarios()}
+
+
+@app.delete("/users/{username}")
+def endpoint_eliminar_usuario(
+    username: str, usuario: str = Depends(obtener_usuario_actual)
+):
+    if obtener_rol(usuario) != "admin":
+        raise HTTPException(status_code=403, detail="Solo admins")
+    if not eliminar_usuario(username):
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar (no existe o es el admin principal)",
+        )
+    return {"status": "ok"}
+
+
+# ===== PROYECTOS =====
 
 @app.get("/projects")
 def endpoint_listar_proyectos(usuario: str = Depends(obtener_usuario_actual)):
-    return {"proyectos": listar_proyectos()}
+    return {"proyectos": listar_proyectos(usuario)}
 
 
 @app.post("/projects")
@@ -106,7 +149,7 @@ def endpoint_crear_proyecto(
 ):
     project_id = str(uuid.uuid4())[:8]
     resultado = crear_estructura_proyecto(req.nombre, req.tipo)
-    crear_proyecto(project_id, req.nombre, req.tipo)
+    crear_proyecto(project_id, usuario, req.nombre, req.tipo)
     chat_id = str(uuid.uuid4())[:8]
     crear_chat(chat_id, project_id, "Chat inicial")
     return {
@@ -120,14 +163,19 @@ def endpoint_crear_proyecto(
 def endpoint_eliminar_proyecto(
     project_id: str, usuario: str = Depends(obtener_usuario_actual)
 ):
-    eliminar_proyecto(project_id)
+    if not eliminar_proyecto(project_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     return {"status": "ok"}
 
+
+# ===== CHATS =====
 
 @app.get("/projects/{project_id}/chats")
 def endpoint_listar_chats(
     project_id: str, usuario: str = Depends(obtener_usuario_actual)
 ):
+    if not verificar_propietario(project_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     return {"chats": listar_chats(project_id)}
 
 
@@ -137,6 +185,8 @@ def endpoint_crear_chat(
     req: ChatCreateRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
+    if not verificar_propietario(project_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     chat_id = str(uuid.uuid4())[:8]
     crear_chat(chat_id, project_id, req.titulo)
     return {"chat_id": chat_id}
@@ -146,14 +196,19 @@ def endpoint_crear_chat(
 def endpoint_eliminar_chat(
     chat_id: str, usuario: str = Depends(obtener_usuario_actual)
 ):
-    eliminar_chat(chat_id)
+    if not eliminar_chat(chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     return {"status": "ok"}
 
+
+# ===== MENSAJES =====
 
 @app.post("/chat", response_model=ChatResponse)
 def endpoint_chat(
     request: ChatRequest, usuario: str = Depends(obtener_usuario_actual)
 ):
+    if not verificar_chat_propietario(request.chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     resultado = niah.chat(request.mensaje, request.chat_id, request.project_id)
     return ChatResponse(**resultado)
 
@@ -162,6 +217,8 @@ def endpoint_chat(
 def endpoint_chat_stream(
     request: ChatRequest, usuario: str = Depends(obtener_usuario_actual)
 ):
+    if not verificar_chat_propietario(request.chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     return StreamingResponse(
         niah.stream(request.mensaje, request.chat_id, request.project_id),
         media_type="text/plain",
@@ -172,6 +229,8 @@ def endpoint_chat_stream(
 def endpoint_historial(
     chat_id: str, usuario: str = Depends(obtener_usuario_actual)
 ):
+    if not verificar_chat_propietario(chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     return {"historial": obtener_historial(chat_id)}
 
 
@@ -179,7 +238,8 @@ def endpoint_historial(
 def endpoint_limpiar(
     chat_id: str, usuario: str = Depends(obtener_usuario_actual)
 ):
-    limpiar_historial(chat_id)
+    if not limpiar_historial(chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     return {"status": "ok"}
 
 
@@ -189,6 +249,8 @@ def endpoint_limpiar(
 def endpoint_listar_documentos(
     project_id: str, usuario: str = Depends(obtener_usuario_actual)
 ):
+    if not verificar_propietario(project_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     return {"documentos": listar_documentos(project_id)}
 
 
@@ -198,6 +260,8 @@ async def endpoint_subir_documento(
     file: UploadFile = File(...),
     usuario: str = Depends(obtener_usuario_actual),
 ):
+    if not verificar_propietario(project_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     contenido = await file.read()
     try:
         resultado = indexar_documento(project_id, file.filename, contenido)
@@ -214,18 +278,20 @@ def endpoint_eliminar_documento(
     nombre: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
+    if not verificar_propietario(project_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
     eliminar_documento(project_id, nombre)
     return {"status": "ok"}
 
 
-# ===== EXPORTAR CHAT =====
+# ===== EXPORTAR =====
 
 @app.get("/chats/{chat_id}/export")
 def endpoint_exportar_chat(
     chat_id: str, usuario: str = Depends(obtener_usuario_actual)
 ):
-    import sqlite3
-    from datetime import datetime
+    if not verificar_chat_propietario(chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
 
     historial = obtener_historial(chat_id, limit=1000)
     if not historial:

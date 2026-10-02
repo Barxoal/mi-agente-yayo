@@ -11,6 +11,7 @@ def init_db():
     c.execute("""
         CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
             nombre TEXT NOT NULL,
             tipo TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -42,21 +43,25 @@ def init_db():
 
 # ===== PROYECTOS =====
 
-def crear_proyecto(project_id: str, nombre: str, tipo: str):
+def crear_proyecto(project_id: str, user_id: str, nombre: str, tipo: str):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
-        "INSERT OR IGNORE INTO projects (id, nombre, tipo) VALUES (?, ?, ?)",
-        (project_id, nombre, tipo),
+        "INSERT OR IGNORE INTO projects (id, user_id, nombre, tipo) VALUES (?, ?, ?, ?)",
+        (project_id, user_id, nombre, tipo),
     )
     conn.commit()
     conn.close()
 
 
-def listar_proyectos():
+def listar_proyectos(user_id: str):
+    """Lista solo los proyectos del usuario."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT id, nombre, tipo, created_at FROM projects ORDER BY created_at DESC")
+    c.execute(
+        "SELECT id, nombre, tipo, created_at FROM projects WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,),
+    )
     rows = c.fetchall()
     conn.close()
     return [
@@ -65,14 +70,37 @@ def listar_proyectos():
     ]
 
 
-def eliminar_proyecto(project_id: str):
+def verificar_propietario(project_id: str, user_id: str) -> bool:
+    """Verifica que el proyecto pertenece al usuario."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE project_id = ?)", (project_id,))
+    c.execute(
+        "SELECT 1 FROM projects WHERE id = ? AND user_id = ?",
+        (project_id, user_id),
+    )
+    row = c.fetchone()
+    conn.close()
+    return row is not None
+
+
+def eliminar_proyecto(project_id: str, user_id: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    # Verificar propietario
+    c.execute("SELECT user_id FROM projects WHERE id = ?", (project_id,))
+    row = c.fetchone()
+    if not row or row[0] != user_id:
+        conn.close()
+        return False
+    c.execute(
+        "DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE project_id = ?)",
+        (project_id,),
+    )
     c.execute("DELETE FROM chats WHERE project_id = ?", (project_id,))
     c.execute("DELETE FROM projects WHERE id = ?", (project_id,))
     conn.commit()
     conn.close()
+    return True
 
 
 # ===== CHATS =====
@@ -100,13 +128,30 @@ def listar_chats(project_id: str):
     return [{"id": r[0], "titulo": r[1], "created_at": r[2]} for r in rows]
 
 
-def eliminar_chat(chat_id: str):
+def verificar_chat_propietario(chat_id: str, user_id: str) -> bool:
+    """Verifica que el chat pertenece a un proyecto del usuario."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT 1 FROM chats
+        JOIN projects ON chats.project_id = projects.id
+        WHERE chats.id = ? AND projects.user_id = ?
+    """, (chat_id, user_id))
+    row = c.fetchone()
+    conn.close()
+    return row is not None
+
+
+def eliminar_chat(chat_id: str, user_id: str):
+    if not verificar_chat_propietario(chat_id, user_id):
+        return False
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
     c.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
     conn.commit()
     conn.close()
+    return True
 
 
 # ===== MENSAJES =====
@@ -137,9 +182,12 @@ def obtener_historial(chat_id: str, limit: int = 50):
     ]
 
 
-def limpiar_historial(chat_id: str):
+def limpiar_historial(chat_id: str, user_id: str):
+    if not verificar_chat_propietario(chat_id, user_id):
+        return False
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
     conn.commit()
     conn.close()
+    return True
