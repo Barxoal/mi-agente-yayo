@@ -357,3 +357,248 @@ def endpoint_agent_analyze(
         return plan
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en análisis: {str(e)}")
+
+
+# ===== AGENT DEV: FASE B (Generación de código) =====
+
+import asyncio
+import json as _json
+from pathlib import Path as _Path
+from fastapi.responses import StreamingResponse as _SR
+
+from src.agent_dev.schemas import PlanCompleto, ExecuteRequest
+from src.agent_dev.coder import generar_archivo
+from src.agent_dev.file_writer import (
+    crear_estructura, escribir_archivo, listar_proyectos_generados,
+    eliminar_proyecto, GENERATED_DIR,
+)
+from src.agent_dev.job_manager import job_manager
+
+
+async def _ejecutar_generacion(job, plan: PlanCompleto):
+    """Corrutina que genera todos los archivos uno por uno."""
+    try:
+        job.estado = "generando"
+        job.agregar_evento({
+            "tipo": "inicio",
+            "job_id": job.job_id,
+            "nombre": job.nombre_proyecto,
+            "total": job.total,
+        })
+
+        # Crear estructura de carpetas
+        try:
+            raiz = crear_estructura(
+                plan.estructura.nombre_proyecto,
+                plan.estructura.carpetas,
+            )
+            job.agregar_evento({
+                "tipo": "estructura",
+                "raiz": str(raiz),
+                "carpetas": len(plan.estructura.carpetas),
+            })
+        except Exception as e:
+            job.agregar_evento({"tipo": "error", "mensaje": f"Error creando estructura: {e}"})
+            job.estado = "error"
+            job.fin = __import__("datetime").datetime.now()
+            return
+
+        archivos_previos = {}
+        exitos = 0
+        errores = 0
+
+        for i, archivo in enumerate(plan.estructura.archivos, start=1):
+            if job.cancelado:
+                job.agregar_evento({"tipo": "cancelado"})
+                break
+
+            job.actual = i
+            # Elegir modelo y avisar
+            from src.agent_dev.coder import elegir_modelo
+            modelo = elegir_modelo(archivo.ruta)
+
+            job.agregar_evento({
+                "tipo": "archivo",
+                "i": i,
+                "total": job.total,
+                "ruta": archivo.ruta,
+                "estado": "generando",
+                "modelo": modelo,
+            })
+
+            # Generar (bloqueante, pero dentro de un thread para no bloquear)
+            resultado = await asyncio.to_thread(
+                generar_archivo,
+                plan,
+                archivo.ruta,
+                archivo.descripcion,
+                archivos_previos,
+            )
+
+            if resultado["exito"]:
+                # Escribir a disco
+                try:
+                    write_res = escribir_archivo(
+                        raiz, archivo.ruta, resultado["contenido"]
+                    )
+                    archivos_previos[archivo.ruta] = resultado["contenido"]
+                    exitos += 1
+                    job.agregar_evento({
+                        "tipo": "archivo",
+                        "i": i,
+                        "total": job.total,
+                        "ruta": archivo.ruta,
+                        "estado": "ok",
+                        "bytes": write_res["bytes"],
+                        "tiempo": resultado["tiempo"],
+                        "modelo": resultado["modelo"],
+                    })
+                except Exception as e:
+                    errores += 1
+                    job.agregar_evento({
+                        "tipo": "archivo",
+                        "i": i,
+                        "total": job.total,
+                        "ruta": archivo.ruta,
+                        "estado": "error_escritura",
+                        "error": str(e),
+                    })
+            else:
+                errores += 1
+                job.agregar_evento({
+                    "tipo": "archivo",
+                    "i": i,
+                    "total": job.total,
+                    "ruta": archivo.ruta,
+                    "estado": "error",
+                    "error": resultado["error"],
+                })
+
+        # Fin
+        job.estado = "terminado"
+        from datetime import datetime as _dt
+        job.fin = _dt.now()
+        job.resultado = {
+            "exito": exitos,
+            "errores": errores,
+            "total": job.total,
+            "tiempo_total": round(job.duracion_seg(), 1),
+            "raiz": str(raiz),
+        }
+        job.agregar_evento({
+            "tipo": "fin",
+            **job.resultado,
+        })
+
+    except Exception as e:
+        job.estado = "error"
+        from datetime import datetime as _dt
+        job.fin = _dt.now()
+        job.agregar_evento({"tipo": "error", "mensaje": str(e)})
+    finally:
+        # Marcar el fin de la cola
+        try:
+            job.cola.put_nowait(None)
+        except Exception:
+            pass
+
+
+@app.post("/agent/generate")
+async def endpoint_agent_generate(
+    req: ExecuteRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """
+    Lanza la generación de código en background.
+    Devuelve job_id para consultar el progreso por SSE.
+    """
+    if not req.autorizado:
+        raise HTTPException(status_code=400, detail="Debes autorizar la ejecución")
+
+    total = len(req.plan.estructura.archivos)
+    job = job_manager.crear_job(req.plan.estructura.nombre_proyecto, total)
+
+    # Lanzar la tarea en background
+    asyncio.create_task(_ejecutar_generacion(job, req.plan))
+
+    return {
+        "job_id": job.job_id,
+        "nombre": job.nombre_proyecto,
+        "total": total,
+    }
+
+
+@app.get("/agent/stream/{job_id}")
+async def endpoint_agent_stream(
+    job_id: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """SSE con el progreso en vivo."""
+    job = job_manager.obtener_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+
+    async def event_generator():
+        # Primero, reenviar eventos ya generados (por si se reconectó)
+        for ev in job.eventos:
+            yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+
+        # Si ya terminó, cerrar
+        if job.estado in ("terminado", "error"):
+            yield "data: {\"tipo\":\"cerrado\"}\n\n"
+            return
+
+        # Esperar eventos nuevos
+        while True:
+            try:
+                evento = await asyncio.wait_for(job.cola.get(), timeout=60)
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+                continue
+
+            if evento is None:
+                yield "data: {\"tipo\":\"cerrado\"}\n\n"
+                break
+            yield f"data: {_json.dumps(evento, ensure_ascii=False)}\n\n"
+
+    return _SR(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/agent/status/{job_id}")
+def endpoint_agent_status(
+    job_id: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Estado actual del job (fallback si se corta el SSE)."""
+    job = job_manager.obtener_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return {
+        "job_id": job.job_id,
+        "nombre": job.nombre_proyecto,
+        "estado": job.estado,
+        "actual": job.actual,
+        "total": job.total,
+        "duracion": round(job.duracion_seg(), 1),
+        "resultado": job.resultado,
+        "eventos": job.eventos[-20:],
+    }
+
+
+@app.get("/agent/projects")
+def endpoint_listar_proyectos_generados(
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Lista los proyectos generados en disco."""
+    return {"proyectos": listar_proyectos_generados()}
+
+
+@app.delete("/agent/projects/{nombre}")
+def endpoint_eliminar_proyecto_generado(
+    nombre: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Elimina un proyecto generado."""
+    if not eliminar_proyecto(nombre):
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    return {"status": "ok"}

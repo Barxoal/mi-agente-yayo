@@ -26,3 +26,4 @@ rag_docs/
 frontend/.env.local
 *.deb
 backups/
+generated_projects/
