@@ -27,3 +27,10 @@ frontend/.env.local
 *.deb
 backups/
 generated_projects/
+
+# ═══════════ Accidentes de ImageMagick / PostScript ═══════════
+/react
+/react-markdown
+/remark-gfm
+*.ps
+*.eps

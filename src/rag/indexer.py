@@ -22,6 +22,10 @@ _client = chromadb.PersistentClient(
 )
 
 
+# ============================================================
+# Lectura de diferentes tipos de archivo
+# ============================================================
+
 def _leer_pdf(path: Path) -> str:
     reader = PdfReader(str(path))
     texto = []
@@ -34,11 +38,96 @@ def _leer_texto(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def _leer_csv(path: Path) -> str:
+    """Lee un CSV y devuelve como tabla markdown simple."""
+    import csv
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lector = csv.reader(f)
+            lineas = list(lector)
+    except Exception:
+        return _leer_texto(path)
+
+    if not lineas:
+        return ""
+
+    resultado = []
+    resultado.append(" | ".join(lineas[0]))
+    resultado.append(" | ".join(["---"] * len(lineas[0])))
+    for fila in lineas[1:]:
+        resultado.append(" | ".join(fila))
+    return "\n".join(resultado)
+
+
+def _leer_json(path: Path) -> str:
+    """Lee un JSON y lo formatea bonito."""
+    import json
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except Exception:
+        return _leer_texto(path)
+
+
+def _leer_excel(path: Path) -> str:
+    """Lee un Excel y devuelve el contenido de todas las hojas."""
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return "(openpyxl no instalado, no se puede leer el Excel)"
+
+    try:
+        wb = load_workbook(path, read_only=True, data_only=True)
+        resultado = []
+        for hoja in wb.sheetnames:
+            ws = wb[hoja]
+            resultado.append(f"\n=== HOJA: {hoja} ===\n")
+            for fila in ws.iter_rows(values_only=True):
+                resultado.append(
+                    " | ".join(str(c) if c is not None else "" for c in fila)
+                )
+        wb.close()
+        return "\n".join(resultado)
+    except Exception as e:
+        return f"(Error leyendo Excel: {e})"
+
+
+def _leer_docx(path: Path) -> str:
+    """Lee un Word."""
+    try:
+        from docx import Document
+    except ImportError:
+        return "(python-docx no instalado, no se puede leer el .docx)"
+
+    try:
+        doc = Document(path)
+        return "\n".join(p.text for p in doc.paragraphs)
+    except Exception as e:
+        return f"(Error leyendo docx: {e})"
+
+
 def leer_documento(path: Path) -> str:
-    if path.suffix.lower() == ".pdf":
+    """Lee cualquier documento soportado."""
+    ext = path.suffix.lower()
+
+    if ext == ".pdf":
         return _leer_pdf(path)
+    if ext == ".csv":
+        return _leer_csv(path)
+    if ext == ".json":
+        return _leer_json(path)
+    if ext in (".xlsx", ".xls"):
+        return _leer_excel(path)
+    if ext == ".docx":
+        return _leer_docx(path)
+
+    # Código, texto, configs, etc → leer como texto
     return _leer_texto(path)
 
+
+# ============================================================
+# Chunking y embeddings
+# ============================================================
 
 def _chunkear(texto: str) -> List[str]:
     splitter = RecursiveCharacterTextSplitter(
@@ -56,6 +145,10 @@ def _embed(textos: List[str]) -> List[List[float]]:
         vectores.append(resp["embedding"])
     return vectores
 
+
+# ============================================================
+# Indexar / listar / eliminar
+# ============================================================
 
 def indexar_documento(project_id: str, nombre_archivo: str, contenido: bytes) -> dict:
     proyecto_dir = DOCS_DIR / project_id

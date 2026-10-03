@@ -24,6 +24,7 @@ import GenerationProgress from "./GenerationProgress";
 import ProjectPanel from "./ProjectPanel";
 import EditPlan from "./EditPlan";
 import AnalizandoEdit from "./AnalizandoEdit";
+import UploadedFiles from "./UploadedFiles";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -101,6 +102,7 @@ function App() {
   } | null>(null);
   const [analizandoEdit, setAnalizandoEdit] = useState(false);
   const [instruccionActual, setInstruccionActual] = useState("");
+  const [recargarUploads, setRecargarUploads] = useState(0);
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
@@ -257,6 +259,7 @@ function App() {
       );
       if (r.ok) {
         await cargarDocumentos(proyectoActivo.id);
+        setRecargarUploads((n) => n + 1);
       } else {
         alert("Error al subir el archivo");
       }
@@ -275,6 +278,7 @@ function App() {
       { method: "DELETE" }
     );
     await cargarDocumentos(proyectoActivo.id);
+    setRecargarUploads((n) => n + 1);
   };
 
   const exportarChat = () => {
@@ -289,6 +293,37 @@ function App() {
         a.click();
         URL.revokeObjectURL(url);
       });
+  };
+
+  const exportarMensaje = async (formato: string) => {
+    if (!chatActivo) return;
+    try {
+      const r = await apiFetch(`${API_URL}/agent/export-message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatActivo.id,
+          mensaje_idx: -1,
+          formato,
+        }),
+      });
+
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        alert(data.detail || "Error exportando");
+        return;
+      }
+
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `respuesta_${Date.now()}.${formato}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Error de conexión");
+    }
   };
 
   const speak = (text: string) => {
@@ -653,6 +688,15 @@ function App() {
             />
           )}
 
+          {/* Bloque de archivos subidos al proyecto */}
+          {proyectoActivo && token && chatActivo && (
+            <UploadedFiles
+              token={token}
+              nombreProyecto={proyectoActivo.nombre}
+              recargarTrigger={recargarUploads}
+            />
+          )}
+
           {proyectoActivo &&
             chatActivo &&
             messages.length === 0 &&
@@ -684,7 +728,14 @@ function App() {
               <div key={i} className={`message ${msg.role}`}>
                 <strong>{msg.role === "user" ? "Tú" : "NIAH"}:</strong>
                 <div className="message-body">
-                  <MessageContent content={msg.content} />
+                  <MessageContent
+                    content={msg.content}
+                    onExport={
+                      msg.role === "assistant"
+                        ? (formato) => exportarMensaje(formato)
+                        : undefined
+                    }
+                  />
                 </div>
               </div>
             );
@@ -821,14 +872,14 @@ function App() {
               <h3>Documentos de {proyectoActivo.nombre}</h3>
             </div>
             <p className="modal-hint">
-              Sube archivos PDF, TXT o Markdown. NIAH los leerá y usará su
-              contenido para responder tus preguntas.
+              Sube archivos PDF, TXT, CSV, JSON, Excel, Word o Markdown. NIAH
+              los leerá y usará su contenido para responder tus preguntas.
             </p>
 
             <label className="upload-zone">
               <input
                 type="file"
-                accept=".pdf,.txt,.md,.py,.js,.ts,.json"
+                accept=".pdf,.txt,.md,.py,.js,.ts,.json,.csv,.yaml,.yml,.xml,.html,.css,.docx,.xlsx,.xls,.log"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) subirDocumento(file);

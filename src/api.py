@@ -36,6 +36,56 @@ app.add_middleware(
 )
 
 
+# ===== CHECK DE DEPENDENCIAS AL ARRANQUE =====
+def _check_deps():
+    """Avisa en consola si falta algo para exportar a PDF/DOCX/XLSX/PPTX."""
+    import shutil
+
+    faltantes = []
+
+    # python-pptx (PowerPoint)
+    try:
+        from pptx import Presentation  # noqa
+    except ImportError:
+        faltantes.append("python-pptx   →  pip install python-pptx")
+
+    # weasyprint (PDF)
+    try:
+        import weasyprint  # noqa
+    except ImportError:
+        faltantes.append("weasyprint   →  pip install weasyprint")
+
+    # python-docx (Word)
+    try:
+        import docx  # noqa
+    except ImportError:
+        faltantes.append("python-docx   →  pip install python-docx")
+
+    # openpyxl (Excel)
+    try:
+        import openpyxl  # noqa
+    except ImportError:
+        faltantes.append("openpyxl   →  pip install openpyxl")
+
+    # libreoffice-impress (para que el USUARIO pueda abrir los .pptx)
+    # Nota: no es necesario para generar, pero sí para verificar/convertir.
+    if not shutil.which("libreoffice") and not shutil.which("soffice"):
+        faltantes.append(
+            "libreoffice   →  sudo apt install libreoffice-impress"
+        )
+
+    if faltantes:
+        print("\n⚠️  DEPENDENCIAS DE EXPORTACIÓN FALTANTES:")
+        for f in faltantes:
+            print(f"   - {f}")
+        print()
+    else:
+        print("✅ Dependencias de exportación OK\n")
+
+
+_check_deps()
+
+
 @app.on_event("startup")
 def startup():
     init_db()
