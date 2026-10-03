@@ -28,12 +28,14 @@ interface Props {
   token: string;
   nombreProyecto: string;
   onResultado: (mensaje: string) => void;
+  onRunRequest?: () => void;
 }
 
 export default function ProjectPanel({
   token,
   nombreProyecto,
   onResultado,
+  onRunRequest,
 }: Props) {
   const [info, setInfo] = useState<any>(null);
   const [cargando, setCargando] = useState(true);
@@ -355,7 +357,9 @@ export default function ProjectPanel({
         </button>
         <button
           className="proj-btn primary"
-          onClick={() => ejecutarAccion("run")}
+          onClick={() =>
+            onRunRequest ? onRunRequest() : ejecutarAccion("run")
+          }
           disabled={accionEnCurso !== null}
         >
           <Play size={14} />

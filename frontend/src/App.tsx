@@ -24,6 +24,7 @@ import GenerationProgress from "./GenerationProgress";
 import ProjectPanel from "./ProjectPanel";
 import EditPlan from "./EditPlan";
 import AnalizandoEdit from "./AnalizandoEdit";
+import RunModal from "./RunModal";
 import UploadedFiles from "./UploadedFiles";
 import "./App.css";
 
@@ -103,6 +104,7 @@ function App() {
   const [analizandoEdit, setAnalizandoEdit] = useState(false);
   const [instruccionActual, setInstruccionActual] = useState("");
   const [recargarUploads, setRecargarUploads] = useState(0);
+  const [showRunModal, setShowRunModal] = useState(false);
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
@@ -142,6 +144,13 @@ function App() {
       setDocumentos([]);
     }
   }, [proyectoActivo]);
+
+  // Auto-seleccionar el primer chat si hay proyecto activo y ninguno seleccionado
+  useEffect(() => {
+    if (proyectoActivo && chats.length > 0 && !chatActivo) {
+      setChatActivo(chats[0]);
+    }
+  }, [chats, proyectoActivo, chatActivo]);
 
   useEffect(() => {
     if (chatActivo) {
@@ -671,6 +680,7 @@ function App() {
               token={token}
               nombreProyecto={proyectoActivo.nombre}
               chatId={chatActivo.id}
+              onRunRequest={() => setShowRunModal(true)}
               onResultado={async (mensaje) => {
                 if (!chatActivo || !mensaje) return;
                 try {
@@ -958,6 +968,28 @@ function App() {
           }}
           onGenerated={() => {
             cargarProyectos();
+          }}
+        />
+      )}
+
+      {showRunModal && token && proyectoActivo && chatActivo && (
+        <RunModal
+          token={token}
+          nombreProyecto={proyectoActivo.nombre}
+          chatId={chatActivo.id}
+          onClose={() => setShowRunModal(false)}
+          onFinalizado={async (resumen) => {
+            try {
+              await apiFetch(`${API_URL}/agent/system-message`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatActivo.id,
+                  contenido: resumen,
+                }),
+              });
+            } catch {}
+            await cargarHistorial(chatActivo.id);
           }}
         />
       )}

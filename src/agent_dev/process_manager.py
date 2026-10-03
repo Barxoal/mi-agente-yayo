@@ -37,7 +37,7 @@ class RunProcess:
             pass
 
     def agregar_evento(self, evento: dict):
-        self.log.append(f"[EVENTO] {evento}")
+        # Solo va a la cola (SSE). No contamina el log con texto crudo.
         try:
             self.cola.put_nowait(evento)
         except asyncio.QueueFull:

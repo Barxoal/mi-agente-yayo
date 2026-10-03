@@ -983,33 +983,65 @@ class RunRequest(BaseModel):
     timeout: int = 300
 
 
+def _elegir_script_npm(raiz) -> str:
+    """Inspecciona package.json y devuelve el comando npm más probable."""
+    import json as _j
+    pkg = raiz / "package.json"
+    if not pkg.exists():
+        return ""
+    try:
+        data = _j.loads(pkg.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return "npm start"
+    scripts = data.get("scripts", {}) or {}
+    # Preferencias por orden
+    for candidato in ("dev", "start", "serve", "preview"):
+        if candidato in scripts:
+            return f"npm run {candidato}"
+    # Sin scripts → intentar ejecutar main si existe
+    main = data.get("main")
+    if main:
+        return f"node {main}"
+    return "npm start"
+
+
 def _detectar_comando_run(raiz) -> str:
+    # Backend + frontend separados
     if (raiz / "backend" / "main.py").exists():
         return (
             "pip install -r backend/requirements.txt 2>/dev/null; "
             "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000"
         )
     if (raiz / "frontend" / "package.json").exists():
-        return "cd frontend && npm install 2>/dev/null; npm run dev"
+        cmd_fe = _elegir_script_npm(raiz / "frontend")
+        return f"cd frontend && npm install 2>/dev/null && {cmd_fe}"
+
+    # package.json en raíz
     if (raiz / "package.json").exists():
-        return "npm install 2>/dev/null; npm start"
+        cmd = _elegir_script_npm(raiz)
+        return f"npm install 2>/dev/null && {cmd}"
+
+    # Python
     if (raiz / "main.py").exists():
         return "pip install -r requirements.txt 2>/dev/null; python main.py"
+    if (raiz / "app.py").exists():
+        return "pip install -r requirements.txt 2>/dev/null; python app.py"
     if (raiz / "src" / "main.py").exists():
         return "cd src && python main.py"
-    # Buscar cualquier .py en src/ con función main
-    src_dir = raiz / "src"
-    if src_dir.exists():
-        for py in src_dir.glob("*.py"):
-            try:
-                contenido = py.read_text(encoding="utf-8", errors="replace")
-                if '__name__ == "__main__"' in contenido or "def main(" in contenido:
-                    return f"cd src && python {py.name}"
-            except Exception:
-                continue
-    py_files = list(raiz.glob("*.py"))
-    if py_files:
-        return f"python {py_files[0].name}"
+
+    # Cualquier .py con __main__
+    for sub in ("", "src", "app"):
+        d = raiz / sub if sub else raiz
+        if d.exists():
+            for py in d.glob("*.py"):
+                try:
+                    c = py.read_text(encoding="utf-8", errors="replace")
+                    if '__name__ == "__main__"' in c or "def main(" in c:
+                        prefix = f"cd {sub} && " if sub else ""
+                        return f"{prefix}python {py.name}"
+                except Exception:
+                    continue
+
     return "ls -la"
 
 
