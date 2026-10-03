@@ -39,15 +39,33 @@ def _extraer_json(texto):
 
 
 def _limpiar_nombre(texto):
+    """Convierte un texto en un nombre de proyecto válido (kebab-case)."""
     texto = texto.lower().strip()
     reemplazos = {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}
     for k, v in reemplazos.items():
         texto = texto.replace(k, v)
-    permitidos = "abcdefghijklmnopqrstuvwxyz0123456789-"
+    permitidos = "abcdefghijklmnopqrstuvwxyz0123456789- "
     limpio = "".join(c if c in permitidos else "-" for c in texto)
+    # Colapsar espacios y guiones
+    limpio = limpio.replace(" ", "-")
     while "--" in limpio:
         limpio = limpio.replace("--", "-")
-    return limpio.strip("-")[:50] or "proyecto"
+    limpio = limpio.strip("-")
+
+    # Cortar por palabras completas
+    partes = [p for p in limpio.split("-") if p]
+    stop = {
+        "una", "un", "el", "la", "los", "las", "de", "del", "para",
+        "con", "y", "o", "en", "que", "es", "por", "al", "se",
+    }
+    significativas = [p for p in partes if p not in stop and len(p) > 2]
+    if significativas:
+        partes = significativas
+
+    nombre = "-".join(partes[:5])
+    if len(nombre) > 40:
+        nombre = nombre[:40].rstrip("-")
+    return nombre or "proyecto"
 
 
 PROMPT_ANALISIS = """Eres un arquitecto de software senior. Analiza el brief del usuario y devuelve un JSON con:
@@ -274,9 +292,7 @@ def _normalizar_comandos(comandos_raw):
     return [c for c in comandos_norm if c]
 
 
-def _aplicar_defaults(
-    archivos_norm, setup_norm, build_norm, test_norm, stack
-):
+def _aplicar_defaults(archivos_norm, setup_norm, build_norm, test_norm, stack):
     """Fuerza comandos y archivos de tests según el stack."""
     stack_str = ((stack.frontend or "") + " " + (stack.backend or "")).lower()
     es_python = ("python" in stack_str) or ("fastapi" in stack_str) or ("django" in stack_str)
@@ -284,7 +300,6 @@ def _aplicar_defaults(
         x in stack_str for x in ("react", "vite", "node", "next", "vue", "svelte")
     )
 
-    # Python: garantizar comandos
     if es_python:
         if not any("pytest" in c for c in test_norm):
             test_norm.append("python -m pytest tests/ -v")
@@ -293,7 +308,6 @@ def _aplicar_defaults(
         if not build_norm:
             build_norm.append("python -m py_compile src/*.py")
 
-    # Node: garantizar comandos
     if es_node:
         if not any("npm test" in c or "vitest" in c for c in test_norm):
             test_norm.append("npm test")
@@ -302,7 +316,6 @@ def _aplicar_defaults(
         if not any("build" in c for c in build_norm):
             build_norm.append("npm run build")
 
-    # Garantizar archivo de tests
     tiene_test = any("test" in a["ruta"].lower() for a in archivos_norm)
     if not tiene_test:
         if es_python:
@@ -310,8 +323,6 @@ def _aplicar_defaults(
                 "ruta": "tests/test_basico.py",
                 "descripcion": "Tests basicos con pytest",
             })
-            if "tests" not in [c.strip("/") for c in [a["ruta"].split("/")[0] for a in archivos_norm]]:
-                pass
         elif es_node:
             archivos_norm.append({
                 "ruta": "src/basico.test.ts",
@@ -379,7 +390,6 @@ def generar_estructura(analisis, stack, nombre_sugerido=None):
         datos.get("comandos_tests") or datos.get("test_commands") or []
     )
 
-    # Garantizar README y .gitignore
     rutas_existentes = {a["ruta"] for a in archivos_norm}
     if "README.md" not in rutas_existentes:
         archivos_norm.insert(0, {
@@ -399,12 +409,10 @@ def generar_estructura(analisis, stack, nombre_sugerido=None):
             {"ruta": "src/main.py", "descripcion": "Punto de entrada"},
         ]
 
-    # Aplicar defaults (tests, comandos)
     archivos_norm, setup_norm, build_norm, test_norm = _aplicar_defaults(
         archivos_norm, setup_norm, build_norm, test_norm, stack
     )
 
-    # Asegurar carpeta 'tests' si hay algún test
     tiene_test = any("test" in a["ruta"].lower() for a in archivos_norm)
     if tiene_test and "tests" not in carpetas_norm:
         carpetas_norm.append("tests")

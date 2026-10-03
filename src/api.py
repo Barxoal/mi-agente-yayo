@@ -765,3 +765,52 @@ async def endpoint_agent_authorize(
         raise HTTPException(status_code=429, detail="Cola de autorización llena")
 
     return {"status": "ok", "comando": req.comando, "permitido": req.permitir}
+
+
+# ===== AGENT DEV: Refinamiento iterativo =====
+
+from src.agent_dev.refiner import refinar_plan, generar_plan_actualizado
+
+
+class ChatRefineRequest(BaseModel):
+    brief: str
+    historial: list = []
+    plan_actual: dict | None = None
+
+
+class ChatRefineResponse(BaseModel):
+    listo: bool
+    preguntas: list[str] = []
+    resumen: str = ""
+    cambios_sugeridos: str = ""
+    info_web_usada: str | None = None
+    plan_actualizado: dict | None = None
+
+
+@app.post("/agent/refine", response_model=ChatRefineResponse)
+def endpoint_agent_refine(
+    req: ChatRefineRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """
+    Refina el plan conversacionalmente.
+    """
+    try:
+        resultado = refinar_plan(req.brief, req.historial, req.plan_actual)
+
+        plan_actualizado = None
+        if resultado["listo"]:
+            plan_actualizado = generar_plan_actualizado(
+                req.brief, req.historial
+            )
+
+        return ChatRefineResponse(
+            listo=resultado["listo"],
+            preguntas=resultado["preguntas"],
+            resumen=resultado["resumen"],
+            cambios_sugeridos=resultado["cambios_sugeridos"],
+            info_web_usada=resultado["info_web_usada"],
+            plan_actualizado=plan_actualizado,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al refinar: {str(e)}")

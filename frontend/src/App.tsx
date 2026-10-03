@@ -15,9 +15,11 @@ import {
   Download,
   LogOut,
   Menu,
+  Wand2,
 } from "lucide-react";
 import MessageContent from "./MessageContent";
 import Login from "./Login";
+import AgentCreator from "./AgentCreator";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -81,6 +83,9 @@ function App() {
   const [modalDocs, setModalDocs] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [sidebarAbierto, setSidebarAbierto] = useState(false);
+  const [modalAgent, setModalAgent] = useState(false);
+  const [planGenerado, setPlanGenerado] = useState<any>(null);
+  const [nombreGenerado, setNombreGenerado] = useState<string>("");
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
@@ -391,21 +396,31 @@ function App() {
       <aside className={`sidebar ${sidebarAbierto ? "open" : ""}`}>
         <div className="sidebar-header">
           <h2>Proyectos</h2>
-          <button
-            className="btn-add"
-            onClick={() => setModalProyecto(true)}
-            title="Crear algo nuevo"
-          >
-            <Plus size={14} />
-            <span>Crear</span>
-          </button>
+          <div className="sidebar-header-btns">
+            <button
+              className="btn-add"
+              onClick={() => setModalProyecto(true)}
+              title="Crear manualmente"
+            >
+              <Plus size={14} />
+              <span>Crear</span>
+            </button>
+            <button
+              className="btn-ia"
+              onClick={() => setModalAgent(true)}
+              title="Crear con IA"
+            >
+              <Wand2 size={14} />
+              <span>IA</span>
+            </button>
+          </div>
         </div>
         <div className="proyectos-lista">
           {proyectos.length === 0 && (
             <p className="empty-sidebar">
               Aún no tienes nada creado.
               <br />
-              Clic en <strong>Crear</strong> para empezar.
+              Clic en <strong>Crear</strong> o <strong>IA</strong> para empezar.
             </p>
           )}
           {proyectos.map((p) => (
@@ -527,7 +542,7 @@ function App() {
               <p>Bienvenido a NIAH</p>
               <p className="hint">
                 Elige algo del panel izquierdo, o crea uno nuevo con el botón{" "}
-                <strong>Crear</strong>.
+                <strong>Crear</strong> o <strong>IA</strong>.
               </p>
             </div>
           )}
@@ -700,6 +715,20 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {modalAgent && token && (
+        <AgentCreator
+          token={token}
+          onClose={() => setModalAgent(false)}
+          onPlanReady={(plan, nombre) => {
+            setPlanGenerado(plan);
+            setNombreGenerado(nombre);
+            setModalAgent(false);
+            console.log("Plan generado:", plan);
+            console.log("Nombre:", nombre);
+          }}
+        />
       )}
     </div>
   );
