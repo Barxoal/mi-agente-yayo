@@ -1842,3 +1842,292 @@ footer button:disabled {
   align-items: center;
   gap: 0.75rem;
 }
+
+/* ═══════════════════════════════════════════════════════
+   Fix layout del resultado final de GenerationProgress
+   (override: alineación en línea, icono fijo, path con wrap)
+   ═══════════════════════════════════════════════════════ */
+
+.progress-resultado {
+  padding: 1rem 1.75rem 0.5rem;
+  border-top: 1px solid var(--border-subtle, #E5E5EA);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.progress-resultado-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--text, #1D1D1F);
+  line-height: 1.4;
+}
+
+.progress-resultado-row > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-tertiary, #6E6E73);
+}
+
+.progress-resultado-row > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.progress-resultado-row > code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #6E6E73);
+  background: var(--bg-secondary, #F5F5F7);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  word-break: break-all;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Primera fila (éxito) más destacada */
+.progress-resultado-row:first-child {
+  font-weight: 600;
+  color: #34C759;
+}
+
+.progress-resultado-row:first-child > svg {
+  color: #34C759;
+}
+
+/* ═══════════════════════════════════════════════════════
+   ProjectPanel — panel de proyecto IA generado
+   ═══════════════════════════════════════════════════════ */
+
+.project-panel {
+  padding: 2rem 2.5rem;
+  max-width: 900px;
+  margin: 0 auto;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.project-panel.loading,
+.project-panel.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--text-tertiary, #6E6E73);
+  padding: 4rem 2rem;
+}
+
+/* Header */
+.project-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.project-header-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0A84FF, #34C759);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(10, 132, 255, 0.25);
+}
+
+.project-header-info h2 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text, #1D1D1F);
+  word-break: break-word;
+}
+
+.project-header-info p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-tertiary, #6E6E73);
+}
+
+/* Ruta del proyecto */
+.project-ruta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--bg-secondary, #F5F5F7);
+  border-radius: 10px;
+  margin-bottom: 1.5rem;
+  font-size: 0.83rem;
+  color: var(--text-secondary, #6E6E73);
+}
+
+.project-ruta code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #6E6E73);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-ruta > svg {
+  flex-shrink: 0;
+  color: var(--text-tertiary, #6E6E73);
+}
+
+/* Botones de acción */
+.project-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.proj-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle, #D2D2D7);
+  background: var(--bg-elevated, #FFFFFF);
+  color: var(--text, #1D1D1F);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.proj-btn:hover:not(:disabled) {
+  border-color: var(--ai-blue, #0A84FF);
+  color: var(--ai-blue, #0A84FF);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.15);
+}
+
+.proj-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.proj-btn.primary {
+  background: var(--ai-blue, #0A84FF);
+  color: white;
+  border-color: var(--ai-blue, #0A84FF);
+}
+
+.proj-btn.primary:hover:not(:disabled) {
+  background: #0070E0;
+  color: white;
+  border-color: #0070E0;
+}
+
+/* Botón de icono pequeño (abrir carpeta, copiar) */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary, #6E6E73);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-icon:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ai-blue, #0A84FF);
+}
+
+/* Error */
+.project-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 59, 48, 0.1);
+  color: #C0392B;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Lista de archivos */
+.project-archivos {
+  margin-top: 1rem;
+}
+
+.project-archivos h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text, #1D1D1F);
+  margin: 0 0 0.75rem 0;
+}
+
+.project-archivo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  font-size: 0.88rem;
+}
+
+.project-archivo-item:hover {
+  background: var(--bg-secondary, #F5F5F7);
+}
+
+.project-archivo-item > svg:first-child {
+  color: var(--text-tertiary, #6E6E73);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.project-archivo-item:hover > svg:first-child {
+  transform: translateX(2px);
+  color: var(--ai-blue, #0A84FF);
+}
+
+.project-archivo-item code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.84rem;
+  color: var(--text, #1D1D1F);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-archivo-bytes {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--text-tertiary, #6E6E73);
+  font-variant-numeric: tabular-nums;
+}
