@@ -26,7 +26,7 @@ from src.auth import (
     listar_usuarios, eliminar_usuario,
 )
 
-app = FastAPI(title="NIAH API", version="8.0.0")
+app = FastAPI(title="NIAH API", version="9.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -366,6 +366,9 @@ from src.agent_dev.tester import validar_proyecto
 from src.agent_dev.process_manager import (
     process_manager, ejecutar_proceso, detener_proceso,
 )
+from src.agent_dev.editor import (
+    analizar_cambio, previsualizar_cambios, aplicar_cambios, revertir_cambios,
+)
 
 import asyncio
 import json as _json
@@ -692,7 +695,7 @@ def endpoint_agent_project_file_content(
 # ===== AGENT DEV: Acciones sobre proyecto generado =====
 
 class ActionRequest(BaseModel):
-    accion: str  # "compile", "test", "setup", "run"
+    accion: str
 
 
 @app.get("/agent/projects/{nombre}/info")
@@ -700,7 +703,6 @@ def endpoint_agent_project_info(
     nombre: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Devuelve info completa del proyecto generado."""
     raiz = GENERATED_DIR / nombre
     if not raiz.exists():
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
@@ -713,10 +715,7 @@ def endpoint_agent_project_info(
                 rel = f.relative_to(raiz)
                 size = f.stat().st_size
                 total_bytes += size
-                archivos.append({
-                    "ruta": str(rel),
-                    "bytes": size,
-                })
+                archivos.append({"ruta": str(rel), "bytes": size})
             except ValueError:
                 continue
 
@@ -736,13 +735,6 @@ async def endpoint_agent_project_action(
     req: ActionRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """
-    Ejecuta una acción sobre el proyecto:
-    - compile: verifica sintaxis Python
-    - setup: instala dependencias
-    - test: instala dependencias (si hace falta), luego corre tests
-    - run: devuelve comandos para ejecutar en tu terminal
-    """
     from src.agent_dev.executor import ejecutar_comando, detectar_timeout
 
     raiz = GENERATED_DIR / nombre
@@ -829,7 +821,6 @@ class RunRequest(BaseModel):
 
 
 def _detectar_comando_run(raiz) -> str:
-    """Detecta el comando más apropiado para ejecutar el proyecto."""
     if (raiz / "backend" / "main.py").exists():
         return (
             "pip install -r backend/requirements.txt 2>/dev/null; "
@@ -843,6 +834,16 @@ def _detectar_comando_run(raiz) -> str:
         return "pip install -r requirements.txt 2>/dev/null; python main.py"
     if (raiz / "src" / "main.py").exists():
         return "cd src && python main.py"
+    # Buscar cualquier .py en src/ con función main
+    src_dir = raiz / "src"
+    if src_dir.exists():
+        for py in src_dir.glob("*.py"):
+            try:
+                contenido = py.read_text(encoding="utf-8", errors="replace")
+                if '__name__ == "__main__"' in contenido or "def main(" in contenido:
+                    return f"cd src && python {py.name}"
+            except Exception:
+                continue
     py_files = list(raiz.glob("*.py"))
     if py_files:
         return f"python {py_files[0].name}"
@@ -855,7 +856,6 @@ async def endpoint_agent_project_run(
     req: RunRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Lanza el proyecto en background. Devuelve run_id para SSE."""
     from src.agent_dev.executor import analizar_comando
 
     raiz = GENERATED_DIR / nombre
@@ -887,7 +887,6 @@ async def endpoint_agent_project_run_log(
     run_id: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """SSE con el log en vivo del proceso."""
     proceso = process_manager.obtener(run_id)
     if not proceso:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
@@ -953,10 +952,9 @@ async def endpoint_agent_project_run_stop(
     return {"status": "ok" if ok else "no_proceso_activo"}
 
 
-# ===== AGENT DEV: Fix automático de archivos =====
+# ===== AGENT DEV: Fix automático =====
 
 class FixRequest(BaseModel):
-
     archivo: str
     error: str
 
@@ -967,7 +965,6 @@ async def endpoint_agent_project_fix(
     req: FixRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Corrige un archivo del proyecto usando el modelo fixer."""
     from src.agent_dev.file_writer import validar_ruta, RutaInseguraError
     from src.agent_dev.fixer import corregir_archivo
 
@@ -1020,7 +1017,6 @@ def endpoint_agent_project_open(
     nombre: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Abre la carpeta del proyecto en el explorador del sistema."""
     import subprocess
     import platform
 
@@ -1047,7 +1043,111 @@ def endpoint_agent_project_open(
     return {"status": "ok", "ruta": str(raiz)}
 
 
-# ===== AGENT DEV: Guardar resultado como mensaje del sistema =====
+# ===== AGENT DEV: Editor inteligente (análisis de impacto) =====
+
+class EditAnalyzeRequest(BaseModel):
+    instruccion: str
+
+
+class EditApplyRequest(BaseModel):
+    instruccion: str
+    plan: dict
+    autorizado: bool = False
+
+
+class EditRevertRequest(BaseModel):
+    backup_dir: str
+
+
+@app.post("/agent/projects/{nombre}/edit/analyze")
+async def endpoint_agent_project_edit_analyze(
+    nombre: str,
+    req: EditAnalyzeRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """
+    Analiza el impacto del cambio solicitado.
+    NO modifica nada. Solo devuelve el plan de impacto.
+    """
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    try:
+        plan = await asyncio.to_thread(analizar_cambio, raiz, req.instruccion)
+        return plan
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analizando: {str(e)}")
+
+
+@app.post("/agent/projects/{nombre}/edit/apply")
+async def endpoint_agent_project_edit_apply(
+    nombre: str,
+    req: EditApplyRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """
+    Aplica los cambios del plan (requiere autorización).
+    """
+    if not req.autorizado:
+        raise HTTPException(status_code=400, detail="Debes autorizar los cambios")
+
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    try:
+        # 1. Generar contenido nuevo de cada archivo
+        preview = await asyncio.to_thread(
+            previsualizar_cambios, raiz, req.plan, req.instruccion
+        )
+
+        # 2. Aplicar los cambios a disco
+        resultado = await asyncio.to_thread(
+            aplicar_cambios, raiz, preview["cambios"]
+        )
+
+        return {
+            "exito": len(resultado["errores"]) == 0,
+            "aplicados": resultado["aplicados"],
+            "errores": resultado["errores"],
+            "backup_dir": resultado["backup_dir"],
+            "cambios_detalle": [
+                {
+                    "ruta": c["ruta"],
+                    "accion": c.get("accion", "modificar"),
+                    "bytes_nuevos": len(c.get("contenido_nuevo", "").encode("utf-8")),
+                    "contenido_nuevo": c.get("contenido_nuevo", "")[:800],
+                }
+                for c in preview["cambios"]
+                if c.get("exito")
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error aplicando: {str(e)}")
+
+
+@app.post("/agent/projects/{nombre}/edit/revert")
+async def endpoint_agent_project_edit_revert(
+    nombre: str,
+    req: EditRevertRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Revierte los cambios usando un backup."""
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    try:
+        resultado = await asyncio.to_thread(
+            revertir_cambios, raiz, req.backup_dir
+        )
+        return resultado
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error revirtiendo: {str(e)}")
+
+
+# ===== AGENT DEV: Guardar mensaje del sistema =====
 
 class SystemMessageRequest(BaseModel):
     chat_id: str
@@ -1059,7 +1159,6 @@ async def endpoint_agent_system_message(
     req: SystemMessageRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Guarda un mensaje del sistema (resultado de acciones) en el chat."""
     if not verificar_chat_propietario(req.chat_id, usuario):
         raise HTTPException(status_code=403, detail="No tienes permiso")
 

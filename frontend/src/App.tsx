@@ -22,6 +22,8 @@ import Login from "./Login";
 import AgentCreator from "./AgentCreator";
 import GenerationProgress from "./GenerationProgress";
 import ProjectPanel from "./ProjectPanel";
+import EditPlan from "./EditPlan";
+import AnalizandoEdit from "./AnalizandoEdit";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -93,6 +95,12 @@ function App() {
   const [historialPlan, setHistorialPlan] = useState<
     { role: string; content: string }[]
   >([]);
+  const [editPlan, setEditPlan] = useState<{
+    plan: any;
+    instruccion: string;
+  } | null>(null);
+  const [analizandoEdit, setAnalizandoEdit] = useState(false);
+  const [instruccionActual, setInstruccionActual] = useState("");
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
@@ -145,7 +153,7 @@ function App() {
     if (chatRef.current) {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, editPlan, analizandoEdit]);
 
   const cargarProyectos = async () => {
     const r = await apiFetch(`${API_URL}/projects`);
@@ -321,6 +329,64 @@ function App() {
   const sendMessage = async () => {
     if (!input.trim() || loading || !chatActivo) return;
 
+    // Si es un proyecto IA, usar flujo de edición inteligente
+    if (proyectoActivo?.origen === "ia") {
+      const instruccion = input.trim();
+      setInput("");
+      setInstruccionActual(instruccion);
+      setAnalizandoEdit(true);
+
+      setMessages((prev) => [...prev, { role: "user", content: instruccion }]);
+
+      try {
+        const r = await apiFetch(
+          `${API_URL}/agent/projects/${proyectoActivo.nombre}/edit/analyze`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ instruccion }),
+          }
+        );
+
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `❌ Error analizando: ${data.detail || "Desconocido"}`,
+            },
+          ]);
+          setAnalizandoEdit(false);
+          return;
+        }
+
+        const plan = await r.json();
+
+        setEditPlan({ plan, instruccion });
+
+        await apiFetch(`${API_URL}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mensaje: `Analicé tu solicitud: "${instruccion}". Revisa el plan abajo.`,
+            chat_id: chatActivo.id,
+            project_id: proyectoActivo.id,
+          }),
+        });
+        await cargarHistorial(chatActivo.id);
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "❌ Error de conexión" },
+        ]);
+      } finally {
+        setAnalizandoEdit(false);
+      }
+      return;
+    }
+
+    // Flujo normal
     const userMessage: Message = { role: "user", content: input };
     setMessages((prev) => [...prev, userMessage]);
     const prompt = input;
@@ -392,7 +458,6 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
-  // Determinar si mostrar ProjectPanel (proyecto IA + chat vacío)
   const mostrarProjectPanel =
     proyectoActivo?.origen === "ia" &&
     chatActivo &&
@@ -566,7 +631,6 @@ function App() {
             </div>
           )}
 
-          {/* Opción C: ProjectPanel si es IA y el chat está vacío */}
           {mostrarProjectPanel && token && proyectoActivo && chatActivo && (
             <ProjectPanel
               token={token}
@@ -588,7 +652,7 @@ function App() {
               }}
             />
           )}
-          {/* Chat vacío normal (no IA o ya tiene ProjectPanel) */}
+
           {proyectoActivo &&
             chatActivo &&
             messages.length === 0 &&
@@ -625,6 +689,44 @@ function App() {
               </div>
             );
           })}
+
+          {analizandoEdit && <AnalizandoEdit instruccion={instruccionActual} />}
+
+          {editPlan && token && proyectoActivo && (
+            <EditPlan
+              token={token}
+              nombreProyecto={proyectoActivo.nombre}
+              instruccion={editPlan.instruccion}
+              plan={editPlan.plan}
+              onAplicado={async (resumen, backupDir) => {
+                setEditPlan(null);
+                if (chatActivo) {
+                  await apiFetch(`${API_URL}/agent/system-message`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      chat_id: chatActivo.id,
+                      contenido: resumen,
+                    }),
+                  });
+                  await cargarHistorial(chatActivo.id);
+                }
+              }}
+              onCancelar={() => {
+                setEditPlan(null);
+                if (chatActivo) {
+                  apiFetch(`${API_URL}/agent/system-message`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      chat_id: chatActivo.id,
+                      contenido: "❌ El usuario canceló la aplicación del plan.",
+                    }),
+                  }).then(() => cargarHistorial(chatActivo.id));
+                }
+              }}
+            />
+          )}
         </section>
 
         <footer>
@@ -641,16 +743,21 @@ function App() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyPress}
             placeholder={
-              chatActivo
-                ? "Escribe tu mensaje..."
-                : "Selecciona un chat primero"
+              !chatActivo
+                ? "Selecciona un chat primero"
+                : proyectoActivo?.origen === "ia"
+                ? "Describe el cambio que quieres hacer al proyecto..."
+                : "Escribe tu mensaje..."
             }
             rows={2}
-            disabled={!chatActivo}
+            disabled={!chatActivo || analizandoEdit}
           />
-          <button onClick={sendMessage} disabled={loading || !chatActivo}>
+          <button
+            onClick={sendMessage}
+            disabled={loading || !chatActivo || analizandoEdit}
+          >
             <Send size={14} />
-            <span>{loading ? "..." : "Enviar"}</span>
+            <span>{loading || analizandoEdit ? "..." : "Enviar"}</span>
           </button>
         </footer>
       </main>

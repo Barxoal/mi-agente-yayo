@@ -2169,3 +2169,423 @@ footer button:disabled {
     font-size: 16px !important;
   }
 }
+
+/* ===== Editor inteligente: Plan de cambios ===== */
+.edit-plan {
+  align-self: stretch;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(167, 139, 250, 0.08));
+  border: 1.5px solid rgba(99, 102, 241, 0.3);
+  border-radius: 14px;
+  padding: 1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  animation: fadeIn 0.25s var(--ease);
+  max-width: 95%;
+}
+
+.edit-plan-riesgo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.edit-plan-riesgo.ok {
+  background: rgba(52, 199, 89, 0.1);
+  color: #34c759;
+}
+
+.edit-plan-riesgo.warning {
+  background: rgba(255, 149, 0, 0.1);
+  color: #ff9500;
+}
+
+.edit-plan-riesgo.danger {
+  background: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+}
+
+.edit-plan-resumen {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.edit-plan-seccion {
+  background: var(--bg-elevated);
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+}
+
+.edit-plan-seccion.warning {
+  background: rgba(255, 149, 0, 0.05);
+  border-color: rgba(255, 149, 0, 0.2);
+}
+
+.edit-plan-seccion.alternativas {
+  background: rgba(52, 199, 89, 0.05);
+  border-color: rgba(52, 199, 89, 0.2);
+}
+
+.edit-plan-seccion.sugerencias {
+  background: rgba(10, 132, 255, 0.05);
+  border-color: rgba(10, 132, 255, 0.2);
+}
+
+.edit-plan-seccion-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+}
+
+.edit-plan-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0;
+  width: 100%;
+}
+
+.edit-plan-toggle .chev-rotado {
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+
+.edit-plan-toggle svg:first-child {
+  transition: transform 0.15s;
+}
+
+.edit-plan-archivos {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.edit-plan-archivo {
+  background: var(--bg-subtle);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.edit-plan-archivo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.edit-plan-archivo-header code {
+  font-size: 0.78rem;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.1);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.edit-plan-accion {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.edit-plan-accion.modificar {
+  background: rgba(255, 149, 0, 0.15);
+  color: #ff9500;
+}
+
+.edit-plan-accion.crear {
+  background: rgba(52, 199, 89, 0.15);
+  color: #34c759;
+}
+
+.edit-plan-accion.eliminar {
+  background: rgba(255, 59, 48, 0.15);
+  color: #ff3b30;
+}
+
+.edit-plan-archivo p {
+  margin: 0.3rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.edit-plan-afecta {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.edit-plan-afecta strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+}
+
+.edit-plan-afecta ul,
+.edit-plan-lista {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.edit-plan-alternativas {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.edit-plan-alt-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.edit-plan-alt-card:hover {
+  border-color: #34c759;
+}
+
+.edit-plan-alt-card.selected {
+  border-color: #34c759;
+  background: rgba(52, 199, 89, 0.08);
+}
+
+.edit-plan-alt-titulo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.edit-plan-alt-card p {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.edit-plan-alt-trade {
+  color: #ff9500 !important;
+  font-size: 0.75rem !important;
+  margin-top: 0.4rem !important;
+}
+
+.edit-plan-sugerencias {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.edit-plan-sug-item {
+  font-size: 0.82rem;
+}
+
+.edit-plan-sug-item p {
+  margin: 0.15rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.edit-plan-error {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  background: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.edit-plan-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.edit-plan-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  border-radius: 10px;
+  border: none;
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.edit-plan-actions button:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.edit-plan-actions button.primary {
+  background: linear-gradient(135deg, #34c759, #248a3d);
+  color: white;
+  box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
+}
+
+.edit-plan-actions button.primary.danger {
+  background: linear-gradient(135deg, #ff3b30, #cc0000);
+  box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);
+}
+
+.edit-plan-actions button.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.edit-plan-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Analizando edición ===== */
+.analizando-edit {
+  align-self: stretch;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.08), rgba(99, 102, 241, 0.05));
+  border: 1.5px solid rgba(167, 139, 250, 0.35);
+  border-radius: 14px;
+  padding: 1rem 1.2rem;
+  animation: fadeIn 0.25s var(--ease);
+  max-width: 95%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.analizando-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #a78bfa;
+}
+
+.analizando-header > div:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.analizando-header strong {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.analizando-instruccion {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analizando-tiempo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.15);
+  padding: 0.2rem 0.55rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.analizando-pasos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+}
+
+.analizando-paso {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+  transition: color 0.2s;
+}
+
+.analizando-paso.activo {
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+.analizando-paso.ok {
+  color: #34c759;
+}
+
+.analizando-paso-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.analizando-paso-punto {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.analizando-paso.ok .analizando-paso-icon {
+  color: #34c759;
+}
+
+.analizando-hint {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  padding-top: 0.3rem;
+  border-top: 1px dashed rgba(167, 139, 250, 0.3);
+  line-height: 1.5;
+}
+
+.analizando-hint svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: #a78bfa;
+}
