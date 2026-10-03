@@ -335,3 +335,25 @@ def endpoint_exportar_chat(
             "Content-Disposition": f'attachment; filename="{titulo.replace(" ", "_")}.md"'
         },
     )
+
+
+# ===== AGENT DEV: FASE A (Análisis + Stack + Estructura) =====
+
+from src.agent_dev.analyzer import generar_plan_completo
+from src.agent_dev.schemas import AnalyzeRequest, PlanCompleto
+
+
+@app.post("/agent/analyze", response_model=PlanCompleto)
+def endpoint_agent_analyze(
+    req: AnalyzeRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """
+    Analiza el brief, elige el stack óptimo y propone la estructura.
+    NO ejecuta nada, solo devuelve el plan para que el usuario lo apruebe.
+    """
+    try:
+        plan = generar_plan_completo(req.brief, req.nombre_sugerido)
+        return plan
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en análisis: {str(e)}")
