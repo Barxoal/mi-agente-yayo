@@ -11,6 +11,10 @@ import {
   ChevronRight,
   X,
   Loader2,
+  Upload,
+  ExternalLink,
+  Check,
+  Copy,
 } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -37,6 +41,16 @@ export default function ProjectPanel({
   const [error, setError] = useState("");
   const [archivoAbierto, setArchivoAbierto] = useState<string | null>(null);
   const [contenidoArchivo, setContenidoArchivo] = useState("");
+
+  // GitHub
+  const [showGithubModal, setShowGithubModal] = useState(false);
+  const [githubNombreRepo, setGithubNombreRepo] = useState("");
+  const [githubDescripcion, setGithubDescripcion] = useState("");
+  const [githubPrivado, setGithubPrivado] = useState(true);
+  const [githubSubiendo, setGithubSubiendo] = useState(false);
+  const [githubResultado, setGithubResultado] = useState<any>(null);
+  const [githubError, setGithubError] = useState("");
+  const [githubCopiado, setGithubCopiado] = useState(false);
 
   useEffect(() => {
     cargarInfo();
@@ -208,6 +222,60 @@ export default function ProjectPanel({
     }
   };
 
+  const subirAGithub = async () => {
+    setGithubSubiendo(true);
+    setGithubError("");
+    setGithubResultado(null);
+
+    try {
+      const r = await fetch(
+        `${API_URL}/agent/projects/${nombreProyecto}/github`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            nombre_repo: githubNombreRepo || nombreProyecto,
+            descripcion: githubDescripcion,
+            privado: githubPrivado,
+          }),
+        }
+      );
+
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok) {
+        setGithubError(data.detail || "Error subiendo a GitHub");
+        setGithubSubiendo(false);
+        return;
+      }
+
+      setGithubResultado(data);
+      onResultado(
+        `## ✅ Subido a GitHub\n\n` +
+          `**Repo:** [${data.nombre}](${data.repo_url})\n` +
+          `**Privado:** ${data.privado ? "Sí" : "No"}\n` +
+          `**${data.creado ? "Repo nuevo creado" : "Repo existente actualizado"}**`
+      );
+    } catch {
+      setGithubError("Error de conexión");
+    } finally {
+      setGithubSubiendo(false);
+    }
+  };
+
+  const copiarUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setGithubCopiado(true);
+      setTimeout(() => setGithubCopiado(false), 2000);
+    } catch {
+      /* silent */
+    }
+  };
+
   if (cargando) {
     return (
       <div className="project-panel loading">
@@ -293,6 +361,22 @@ export default function ProjectPanel({
           <Play size={14} />
           <span>Ejecutar</span>
         </button>
+        <button
+          className="proj-btn"
+          onClick={() => {
+            setShowGithubModal(true);
+            setGithubError("");
+            setGithubResultado(null);
+            setGithubNombreRepo(nombreProyecto);
+            setGithubDescripcion(`Proyecto generado por NIAH: ${nombreProyecto}`);
+            setGithubPrivado(true);
+          }}
+          disabled={accionEnCurso !== null}
+          title="Subir proyecto a GitHub"
+        >
+          <Upload size={14} />
+          <span>Subir a GitHub</span>
+        </button>
       </div>
 
       {error && (
@@ -338,6 +422,236 @@ export default function ProjectPanel({
               </button>
             </div>
             <pre className="archivo-contenido">{contenidoArchivo}</pre>
+          </div>
+        </div>
+      )}
+
+      {showGithubModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => !githubSubiendo && setShowGithubModal(false)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 500 }}
+          >
+            <div className="modal-title">
+              <Upload size={18} />
+              <h3>Subir a GitHub</h3>
+              <button
+                className="modal-close"
+                onClick={() => !githubSubiendo && setShowGithubModal(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {githubResultado ? (
+              <div style={{ padding: "20px 0" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    marginBottom: 16,
+                    color: "#34C759",
+                  }}
+                >
+                  <Check size={20} />
+                  <strong>
+                    {githubResultado.creado
+                      ? "Repositorio creado"
+                      : "Repositorio actualizado"}
+                  </strong>
+                </div>
+
+                <p style={{ marginBottom: 8, color: "#6E6E73" }}>
+                  URL del repositorio:
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    background: "#F5F5F7",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    marginBottom: 16,
+                  }}
+                >
+                  <code style={{ flex: 1, fontSize: 12, wordBreak: "break-all" }}>
+                    {githubResultado.repo_url}
+                  </code>
+                  <button
+                    className="btn-icon"
+                    onClick={() => copiarUrl(githubResultado.repo_url)}
+                    title="Copiar URL"
+                  >
+                    {githubCopiado ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+
+                <a
+                  href={githubResultado.repo_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    color: "#0A84FF",
+                    textDecoration: "none",
+                    fontSize: 14,
+                  }}
+                >
+                  <ExternalLink size={14} />
+                  Abrir en GitHub
+                </a>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      marginBottom: 6,
+                      fontSize: 13,
+                      color: "#6E6E73",
+                    }}
+                  >
+                    Nombre del repositorio
+                  </label>
+                  <input
+                    type="text"
+                    value={githubNombreRepo}
+                    onChange={(e) => setGithubNombreRepo(e.target.value)}
+                    disabled={githubSubiendo}
+                    placeholder="mi-proyecto"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid #D2D2D7",
+                      fontSize: 14,
+                      fontFamily: "inherit",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      marginBottom: 6,
+                      fontSize: 13,
+                      color: "#6E6E73",
+                    }}
+                  >
+                    Descripción (opcional)
+                  </label>
+                  <textarea
+                    value={githubDescripcion}
+                    onChange={(e) => setGithubDescripcion(e.target.value)}
+                    disabled={githubSubiendo}
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid #D2D2D7",
+                      fontSize: 14,
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 20 }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 14,
+                      cursor: githubSubiendo ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={githubPrivado}
+                      onChange={(e) => setGithubPrivado(e.target.checked)}
+                      disabled={githubSubiendo}
+                    />
+                    <span>Repositorio privado</span>
+                  </label>
+                </div>
+
+                {githubError && (
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      background: "#FFEBE9",
+                      color: "#C0392B",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      marginBottom: 16,
+                    }}
+                  >
+                    {githubError}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setShowGithubModal(false)}
+                    disabled={githubSubiendo}
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 8,
+                      border: "1px solid #D2D2D7",
+                      background: "white",
+                      cursor: githubSubiendo ? "not-allowed" : "pointer",
+                      fontSize: 14,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={subirAGithub}
+                    disabled={githubSubiendo || !githubNombreRepo.trim()}
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: githubSubiendo ? "#8FBFFF" : "#0A84FF",
+                      color: "white",
+                      cursor: githubSubiendo ? "not-allowed" : "pointer",
+                      fontSize: 14,
+                      fontFamily: "inherit",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    {githubSubiendo ? (
+                      <>
+                        <Loader2 size={14} className="spin" />
+                        Subiendo...
+                      </>
+                    ) : (
+                      <>
+                        <Upload size={14} />
+                        Subir
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

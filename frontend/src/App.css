@@ -1367,3 +1367,478 @@ footer button:disabled {
 @media (max-width: 768px) {
   input, textarea, select { font-size: 16px !important; }
 }
+
+/* ═══════════════════════════════════════════════════════
+   Modal de AgentCreator (Crear con IA) — chat conversacional
+   ═══════════════════════════════════════════════════════ */
+
+.modal-chat {
+  width: 720px;
+  max-width: calc(100vw - 2rem);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.modal-chat .modal-title {
+  padding: 1.25rem 1.75rem 0.75rem;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border-subtle, #E5E5EA);
+  flex-shrink: 0;
+}
+
+.modal-chat .agent-chat-messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.75rem;
+}
+
+.modal-chat .agent-actions,
+.modal-chat .modal-actions {
+  flex-shrink: 0;
+  padding: 1rem 1.75rem 1.25rem;
+  border-top: 1px solid var(--border-subtle, #E5E5EA);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.modal-chat .login-error {
+  flex-shrink: 0;
+  margin: 0 1.75rem;
+}
+
+/* Estilos de los mensajes (agent-msg) */
+.agent-msg {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  align-items: flex-start;
+}
+
+.agent-msg.user {
+  flex-direction: row-reverse;
+}
+
+.agent-msg-body {
+  max-width: 80%;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-msg.user .agent-msg-body {
+  background: var(--ai-blue, #0A84FF);
+  color: white;
+  border-top-right-radius: 4px;
+}
+
+.agent-msg.assistant .agent-msg-body {
+  background: var(--bg-secondary, #F5F5F7);
+  color: var(--text, #1D1D1F);
+  border-top-left-radius: 4px;
+}
+
+.agent-msg-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-secondary, #F5F5F7);
+}
+
+/* Card del plan final */
+.agent-plan-card {
+  margin: 1rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border-subtle, #E5E5EA);
+  border-radius: 12px;
+  background: var(--bg-elevated, #FFFFFF);
+}
+
+.agent-plan-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  color: var(--ai-blue, #0A84FF);
+}
+
+.agent-plan-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  font-size: 0.88rem;
+  border-bottom: 1px solid var(--border-subtle, #F0F0F2);
+}
+
+.agent-plan-row:last-child {
+  border-bottom: none;
+}
+
+.agent-plan-label {
+  color: var(--text-tertiary, #6E6E73);
+  font-weight: 500;
+}
+
+.agent-plan-details {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.agent-plan-details summary {
+  cursor: pointer;
+  color: var(--text-secondary, #6E6E73);
+  padding: 0.25rem 0;
+}
+
+/* Badge de búsqueda web */
+.agent-web-badge {
+  font-size: 0.78rem;
+  color: var(--text-tertiary, #6E6E73);
+  margin-bottom: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Textarea del brief inicial */
+.agent-brief-input {
+  width: 100%;
+  min-height: 120px;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-subtle, #D2D2D7);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+  background: var(--bg-elevated, #FFFFFF);
+  color: var(--text, #1D1D1F);
+}
+
+.agent-brief-input:focus {
+  outline: none;
+  border-color: var(--ai-blue, #0A84FF);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+}
+
+/* Input de respuesta dentro del chat */
+.modal-chat textarea,
+.modal-chat input[type="text"] {
+  flex: 1;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--border-subtle, #D2D2D7);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.modal-chat textarea:focus,
+.modal-chat input[type="text"]:focus {
+  outline: none;
+  border-color: var(--ai-blue, #0A84FF);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+}
+
+/* Animación de "pensando" */
+.agent-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-tertiary, #6E6E73);
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Input de respuesta del chat AgentCreator
+   ═══════════════════════════════════════════════════════ */
+
+.agent-chat-input {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 1rem 1.75rem 1.25rem;
+  border-top: 1px solid var(--border-subtle, #E5E5EA);
+  background: var(--bg-elevated, #FFFFFF);
+}
+
+.agent-chat-input textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 52px;
+  max-height: 140px;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--border-subtle, #D2D2D7);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: none;
+  box-sizing: border-box;
+  background: var(--bg-elevated, #FFFFFF);
+  color: var(--text, #1D1D1F);
+  overflow-y: auto;
+}
+
+.agent-chat-input textarea:focus {
+  outline: none;
+  border-color: var(--ai-blue, #0A84FF);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+}
+
+.agent-chat-input textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.agent-chat-input > button {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: none;
+  background: var(--ai-blue, #0A84FF);
+  color: white;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.agent-chat-input > button:hover:not(:disabled) {
+  background: #0070E0;
+  transform: translateY(-1px);
+}
+
+.agent-chat-input > button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Botones de "Refinar más" y "Aprobar y generar" */
+.modal-chat .agent-actions button {
+  padding: 0.6rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle, #D2D2D7);
+  background: var(--bg-elevated, #FFFFFF);
+  color: var(--text, #1D1D1F);
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.15s ease;
+}
+
+.modal-chat .agent-actions button:hover {
+  border-color: var(--ai-blue, #0A84FF);
+  color: var(--ai-blue, #0A84FF);
+}
+
+.modal-chat .agent-actions button.primary {
+  background: var(--ai-blue, #0A84FF);
+  color: white;
+  border-color: var(--ai-blue, #0A84FF);
+}
+
+.modal-chat .agent-actions button.primary:hover {
+  background: #0070E0;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Modal de GenerationProgress (progreso de generación)
+   ═══════════════════════════════════════════════════════ */
+
+.modal-progress {
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.modal-progress .modal-title {
+  padding: 1.25rem 1.75rem 0.75rem;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border-subtle, #E5E5EA);
+  flex-shrink: 0;
+}
+
+.modal-progress .progress-bar-container {
+  margin: 1rem 1.75rem 0.5rem;
+  flex-shrink: 0;
+}
+
+.modal-progress .progress-text {
+  margin: 0 1.75rem 1rem;
+  font-size: 0.88rem;
+  color: var(--text-tertiary, #6E6E73);
+  flex-shrink: 0;
+}
+
+.modal-progress .progress-files {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 1.75rem 1rem;
+}
+
+.modal-progress .modal-actions {
+  flex-shrink: 0;
+  padding: 1rem 1.75rem 1.25rem;
+  border-top: 1px solid var(--border-subtle, #E5E5EA);
+}
+
+/* Barra de progreso */
+.progress-bar-container {
+  height: 6px;
+  background: var(--bg-secondary, #F0F0F2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0A84FF, #34C759);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* Items de archivos */
+.progress-file {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.35rem;
+  background: var(--bg-secondary, #F5F5F7);
+  transition: background 0.15s ease;
+}
+
+.progress-file-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-tertiary, #6E6E73);
+}
+
+.progress-file-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.progress-file-body code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--text, #1D1D1F);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-file-modelo {
+  font-size: 0.72rem;
+  color: var(--text-tertiary, #6E6E73);
+  font-weight: 500;
+}
+
+.progress-file-bytes {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--text-tertiary, #6E6E73);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Estados del archivo */
+.progress-file.ok {
+  background: rgba(52, 199, 89, 0.08);
+}
+.progress-file.ok .progress-file-icon {
+  background: rgba(52, 199, 89, 0.18);
+  color: #34C759;
+}
+
+.progress-file.generando {
+  background: rgba(10, 132, 255, 0.08);
+}
+.progress-file.generando .progress-file-icon {
+  background: rgba(10, 132, 255, 0.18);
+  color: #0A84FF;
+}
+
+.progress-file.error,
+.progress-file.error_escritura {
+  background: rgba(255, 59, 48, 0.08);
+}
+.progress-file.error .progress-file-icon,
+.progress-file.error_escritura .progress-file-icon {
+  background: rgba(255, 59, 48, 0.18);
+  color: #FF3B30;
+}
+
+.progress-file.pendiente .progress-file-icon {
+  opacity: 0.55;
+}
+
+/* Resultado final */
+.progress-resultado {
+  padding: 1rem 1.75rem;
+  border-top: 1px solid var(--border-subtle, #E5E5EA);
+  flex-shrink: 0;
+}
+
+.progress-resultado-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  font-size: 0.9rem;
+}
+
+.progress-error {
+  padding: 0.75rem 1rem;
+  margin: 1rem 1.75rem;
+  border-radius: 8px;
+  background: rgba(255, 59, 48, 0.1);
+  color: #C0392B;
+  font-size: 0.88rem;
+  flex-shrink: 0;
+}
+
+/* Loading inicial */
+.progress-loading {
+  padding: 2rem 1.75rem;
+  text-align: center;
+  color: var(--text-tertiary, #6E6E73);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}

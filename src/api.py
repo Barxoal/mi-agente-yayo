@@ -1206,6 +1206,85 @@ def endpoint_agent_project_open(
     return {"status": "ok", "ruta": str(raiz)}
 
 
+# ===== AGENT DEV: Refinamiento conversacional =====
+
+class RefineRequest(BaseModel):
+    brief: str
+    historial: list[dict] = []
+    plan_actual: Optional[dict] = None
+
+
+@app.post("/agent/refine")
+async def endpoint_agent_refine(
+    req: RefineRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Refina un plan conversacionalmente. Si está listo, devuelve plan completo."""
+    from src.agent_dev.refiner import refinar_plan, generar_plan_actualizado
+
+    if not req.brief or len(req.brief.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Brief muy corto (mín. 10 chars)")
+
+    try:
+        resultado = await asyncio.to_thread(
+            refinar_plan, req.brief, req.historial, req.plan_actual
+        )
+
+        # Si el LLM marcó el plan como listo, generar la estructura completa
+        if resultado.get("listo"):
+            try:
+                plan_completo = await asyncio.to_thread(
+                    generar_plan_actualizado, req.brief, req.historial
+                )
+                resultado["plan_actualizado"] = plan_completo
+            except Exception as e:
+                resultado["plan_error"] = str(e)
+
+        return resultado
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error refinando: {e}")
+
+
+# ===== AGENT DEV: Subir proyecto a GitHub =====
+
+class GithubPushRequest(BaseModel):
+    nombre_repo: Optional[str] = None
+    descripcion: str = ""
+    privado: bool = True
+
+
+@app.post("/agent/projects/{nombre}/github")
+async def endpoint_agent_project_github(
+    nombre: str,
+    req: GithubPushRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Sube un proyecto generado a GitHub. Crea el repo si no existe."""
+    from src.agent_dev.github_pusher import subir_proyecto
+
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    nombre_repo = req.nombre_repo or nombre
+
+    try:
+        resultado = await subir_proyecto(
+            ruta_proyecto=raiz,
+            nombre_repo=nombre_repo,
+            descripcion=req.descripcion or f"Proyecto generado por NIAH: {nombre}",
+            privado=req.privado,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error subiendo a GitHub: {e}")
+
+    return resultado
+
+
 # ===== AGENT DEV: Editor inteligente (análisis de impacto) =====
 
 class EditAnalyzeRequest(BaseModel):
