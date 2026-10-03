@@ -692,7 +692,7 @@ function App() {
           {proyectoActivo && token && chatActivo && (
             <UploadedFiles
               token={token}
-              nombreProyecto={proyectoActivo.nombre}
+              projectId={proyectoActivo.id}
               recargarTrigger={recargarUploads}
             />
           )}

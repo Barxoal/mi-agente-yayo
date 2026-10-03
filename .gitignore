@@ -34,3 +34,4 @@ generated_projects/
 /remark-gfm
 *.ps
 *.eps
+*.bak*

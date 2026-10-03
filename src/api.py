@@ -337,6 +337,45 @@ async def endpoint_subir_documento(
     return resultado
 
 
+@app.get("/projects/{project_id}/documents/{nombre}/content")
+def endpoint_documento_content(
+    project_id: str,
+    nombre: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Devuelve el texto legible de un documento subido (PDF/TXT/CSV/etc)."""
+    from pathlib import Path as _P
+    from src.rag.indexer import DOCS_DIR, leer_documento
+
+    if not verificar_propietario(project_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
+
+    # Sanitizar el nombre para evitar path traversal
+    nombre_seguro = _P(nombre).name
+    archivo = DOCS_DIR / project_id / nombre_seguro
+    if not archivo.exists() or not archivo.is_file():
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    try:
+        contenido = leer_documento(archivo)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo documento: {e}")
+
+    # Truncar si es enorme para no saturar el navegador
+    max_chars = 200_000
+    truncado = False
+    if len(contenido) > max_chars:
+        contenido = contenido[:max_chars]
+        truncado = True
+
+    return {
+        "nombre": nombre_seguro,
+        "contenido": contenido,
+        "truncado": truncado,
+        "bytes": archivo.stat().st_size,
+    }
+
+
 @app.delete("/projects/{project_id}/documents/{nombre}")
 def endpoint_eliminar_documento(
     project_id: str,
@@ -398,6 +437,64 @@ def endpoint_exportar_chat(
         media_type="text/markdown",
         headers={
             "Content-Disposition": f'attachment; filename="{titulo.replace(" ", "_")}.md"'
+        },
+    )
+
+
+# ===== EXPORTAR MENSAJE INDIVIDUAL =====
+
+class ExportMessageRequest(BaseModel):
+    chat_id: str
+    mensaje_idx: int = -1
+    formato: str
+
+
+@app.post("/agent/export-message")
+def endpoint_export_message(
+    req: ExportMessageRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Exporta una respuesta a MD/PDF/DOCX/XLSX/PPTX/HTML/TXT/JSON."""
+    from fastapi.responses import Response as _R
+    from src.exporters import exportar
+
+    if not verificar_chat_propietario(req.chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
+
+    historial = obtener_historial(req.chat_id, limit=1000)
+    if not historial:
+        raise HTTPException(status_code=404, detail="Chat vacío")
+
+    try:
+        msg = historial[req.mensaje_idx]
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Mensaje no encontrado")
+
+    contenido = msg.get("content", "")
+    if not contenido.strip():
+        raise HTTPException(status_code=400, detail="Mensaje vacío")
+
+    primera = next(
+        (l.strip("# ").strip() for l in contenido.split("\n") if l.strip()),
+        "Respuesta de NIAH",
+    )
+    titulo = primera[:80] if primera else "Respuesta de NIAH"
+
+    try:
+        data, mime, ext = exportar(req.formato, titulo, contenido)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Dependencia faltante: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando {req.formato}: {e}")
+
+    timestamp = int(datetime.now().timestamp() * 1000)
+    return _R(
+        content=data,
+        media_type=mime,
+        headers={
+            "Content-Disposition": f'attachment; filename="respuesta_{timestamp}.{ext}"'
         },
     )
 
