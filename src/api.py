@@ -602,3 +602,166 @@ def endpoint_eliminar_proyecto_generado(
     if not eliminar_proyecto(nombre):
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     return {"status": "ok"}
+
+
+# ===== AGENT DEV: FASE C (Validación + Corrección) =====
+
+from src.agent_dev.tester import validar_proyecto
+from src.agent_dev.file_writer import GENERATED_DIR
+
+
+async def _ejecutar_validacion(job, plan: PlanCompleto, nombre_proyecto: str):
+    """Corrutina que valida el proyecto generado."""
+    from src.agent_dev.job_manager import job_manager
+    import asyncio
+
+    try:
+        job.estado = "validando"
+
+        raiz = GENERATED_DIR / nombre_proyecto
+        if not raiz.exists():
+            job.agregar_evento({
+                "tipo": "error",
+                "mensaje": f"Proyecto no encontrado: {nombre_proyecto}",
+            })
+            job.estado = "error"
+            return
+
+        job.agregar_evento({
+            "tipo": "validacion_inicio",
+            "job_id": job.job_id,
+            "nombre": nombre_proyecto,
+            "comandos_totales": (
+                len(plan.estructura.comandos_setup)
+                + len(plan.estructura.comandos_compilacion)
+                + len(plan.estructura.comandos_tests)
+            ),
+        })
+
+        # Callback para emitir eventos
+        async def emitir(evento):
+            job.agregar_evento(evento)
+            # Si es autorización requerida, pausar hasta que llegue respuesta
+            if evento.get("tipo") == "autorizacion_requerida":
+                # Esperar respuesta del usuario
+                try:
+                    respuesta = await asyncio.wait_for(
+                        job.cola_auth.get(), timeout=120
+                    )
+                    if respuesta.get("permitir"):
+                        if respuesta.get("siempre"):
+                            job.autorizaciones_sesion.add(evento["comando"])
+                        # Emitir evento de autorizado
+                        job.agregar_evento({
+                            "tipo": "autorizacion_recibida",
+                            "comando": evento["comando"],
+                            "permitido": True,
+                            "siempre": respuesta.get("siempre", False),
+                        })
+                    else:
+                        job.agregar_evento({
+                            "tipo": "autorizacion_recibida",
+                            "comando": evento["comando"],
+                            "permitido": False,
+                        })
+                except asyncio.TimeoutError:
+                    job.agregar_evento({
+                        "tipo": "autorizacion_timeout",
+                        "comando": evento["comando"],
+                    })
+
+        # Ejecutar validación
+        resumen = await validar_proyecto(
+            plan, raiz, job.autorizaciones_sesion, emitir
+        )
+
+        job.estado = "terminado"
+        from datetime import datetime as _dt
+        job.fin = _dt.now()
+        job.resultado = resumen
+
+        job.agregar_evento({
+            "tipo": "validacion_fin",
+            **resumen,
+            "tiempo_total": round(job.duracion_seg(), 1),
+        })
+
+    except Exception as e:
+        job.estado = "error"
+        from datetime import datetime as _dt
+        job.fin = _dt.now()
+        job.agregar_evento({"tipo": "error", "mensaje": str(e)})
+    finally:
+        try:
+            job.cola.put_nowait(None)
+        except Exception:
+            pass
+
+
+class ValidateRequest(BaseModel):
+    plan: PlanCompleto
+    nombre_proyecto: str
+
+
+class AuthorizeRequest(BaseModel):
+    comando: str
+    permitir: bool
+    siempre: bool = False
+
+
+@app.post("/agent/validate")
+async def endpoint_agent_validate(
+    req: ValidateRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """
+    Lanza la validación (compilación + tests + corrección automática)
+    de un proyecto ya generado.
+    """
+    raiz = GENERATED_DIR / req.nombre_proyecto
+    if not raiz.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Proyecto no encontrado: {req.nombre_proyecto}",
+        )
+
+    total_comandos = (
+        len(req.plan.estructura.comandos_setup)
+        + len(req.plan.estructura.comandos_compilacion)
+        + len(req.plan.estructura.comandos_tests)
+    )
+    job = job_manager.crear_job(req.nombre_proyecto, total_comandos)
+
+    # Lanzar en background
+    asyncio.create_task(_ejecutar_validacion(job, req.plan, req.nombre_proyecto))
+
+    return {
+        "job_id": job.job_id,
+        "nombre": req.nombre_proyecto,
+        "comandos_totales": total_comandos,
+    }
+
+
+@app.post("/agent/authorize/{job_id}")
+async def endpoint_agent_authorize(
+    job_id: str,
+    req: AuthorizeRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """
+    Responde a una solicitud de autorización de comando bloqueado.
+    """
+    job = job_manager.obtener_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+
+    try:
+        job.cola_auth.put_nowait({
+            "comando": req.comando,
+            "permitir": req.permitir,
+            "siempre": req.siempre,
+        })
+    except asyncio.QueueFull:
+        raise HTTPException(status_code=429, detail="Cola de autorización llena")
+
+    return {"status": "ok", "comando": req.comando, "permitido": req.permitir}

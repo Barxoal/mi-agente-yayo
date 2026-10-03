@@ -12,9 +12,11 @@ class Job:
         self.nombre_proyecto = nombre_proyecto
         self.total = total_archivos
         self.actual = 0
-        self.estado = "pendiente"  # pendiente, generando, terminado, error
+        self.estado = "pendiente"
         self.eventos: List[dict] = []
         self.cola: asyncio.Queue = asyncio.Queue()
+        self.cola_auth: asyncio.Queue = asyncio.Queue()
+        self.autorizaciones_sesion: set = set()
         self.inicio = datetime.now()
         self.fin: Optional[datetime] = None
         self.resultado: Optional[dict] = None
