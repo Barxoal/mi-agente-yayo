@@ -454,9 +454,9 @@ def endpoint_export_message(
     req: ExportMessageRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Exporta una respuesta a MD/PDF/DOCX/XLSX/PPTX/HTML/TXT/JSON."""
+    """Exporta una respuesta a MD/PDF/DOCX/XLSX/PPTX/HTML/TXT/JSON con diseño."""
     from fastapi.responses import Response as _R
-    from src.exporters import exportar
+    from src.ai_exporter import exportar_con_diseno
 
     if not verificar_chat_propietario(req.chat_id, usuario):
         raise HTTPException(status_code=403, detail="No tienes permiso")
@@ -474,14 +474,30 @@ def endpoint_export_message(
     if not contenido.strip():
         raise HTTPException(status_code=400, detail="Mensaje vacío")
 
+    # Título: primera línea no vacía del mensaje
     primera = next(
         (l.strip("# ").strip() for l in contenido.split("\n") if l.strip()),
         "Respuesta de NIAH",
     )
     titulo = primera[:80] if primera else "Respuesta de NIAH"
 
+    # Subtítulo: título del chat
+    subtitulo = ""
     try:
-        data, mime, ext = exportar(req.formato, titulo, contenido)
+        conn = sqlite3.connect("niah_history.db")
+        c = conn.cursor()
+        c.execute("SELECT titulo FROM chats WHERE id = ?", (req.chat_id,))
+        row = c.fetchone()
+        conn.close()
+        if row and row[0]:
+            subtitulo = row[0]
+    except Exception:
+        pass
+
+    try:
+        data, mime, ext = exportar_con_diseno(
+            req.formato, titulo, contenido, subtitulo=subtitulo
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ImportError as e:
