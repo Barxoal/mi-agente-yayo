@@ -2,6 +2,7 @@
 import uuid
 import sqlite3
 from datetime import datetime
+from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,7 @@ from src.core import niah
 from src.core.history import (
     init_db, crear_proyecto, listar_proyectos, eliminar_proyecto,
     crear_chat, listar_chats, eliminar_chat,
-    obtener_historial, limpiar_historial,
+    obtener_historial, limpiar_historial, guardar_mensaje,
     verificar_propietario, verificar_chat_propietario,
 )
 from src.core.builder import crear_estructura_proyecto
@@ -25,7 +26,7 @@ from src.auth import (
     listar_usuarios, eliminar_usuario,
 )
 
-app = FastAPI(title="NIAH API", version="6.0.0")
+app = FastAPI(title="NIAH API", version="8.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -147,15 +148,29 @@ def endpoint_listar_proyectos(usuario: str = Depends(obtener_usuario_actual)):
 def endpoint_crear_proyecto(
     req: ProyectoRequest, usuario: str = Depends(obtener_usuario_actual)
 ):
-    project_id = str(uuid.uuid4())[:8]
+    project_id_nuevo = str(uuid.uuid4())[:8]
+    project_id_db = crear_proyecto(
+        project_id_nuevo, usuario, req.nombre, req.tipo, origen="manual"
+    )
+
+    if project_id_db != project_id_nuevo:
+        chats_existentes = listar_chats(project_id_db)
+        chat_id = chats_existentes[0]["id"] if chats_existentes else None
+        return {
+            "project_id": project_id_db,
+            "chat_id": chat_id,
+            "resultado": f"Proyecto '{req.nombre}' ya existía, reutilizado",
+            "reutilizado": True,
+        }
+
     resultado = crear_estructura_proyecto(req.nombre, req.tipo)
-    crear_proyecto(project_id, usuario, req.nombre, req.tipo)
     chat_id = str(uuid.uuid4())[:8]
-    crear_chat(chat_id, project_id, "Chat inicial")
+    crear_chat(chat_id, project_id_db, "Chat inicial")
     return {
-        "project_id": project_id,
+        "project_id": project_id_db,
         "chat_id": chat_id,
         "resultado": resultado,
+        "reutilizado": False,
     }
 
 
@@ -337,21 +352,33 @@ def endpoint_exportar_chat(
     )
 
 
-# ===== AGENT DEV: FASE A (Análisis + Stack + Estructura) =====
+# ===== AGENT DEV: imports compartidos =====
 
 from src.agent_dev.analyzer import generar_plan_completo
-from src.agent_dev.schemas import AnalyzeRequest, PlanCompleto
+from src.agent_dev.schemas import AnalyzeRequest, PlanCompleto, ExecuteRequest
+from src.agent_dev.coder import generar_archivo
+from src.agent_dev.file_writer import (
+    crear_estructura, escribir_archivo, listar_proyectos_generados,
+    eliminar_proyecto as eliminar_proyecto_generado, GENERATED_DIR,
+)
+from src.agent_dev.job_manager import job_manager
+from src.agent_dev.tester import validar_proyecto
+from src.agent_dev.process_manager import (
+    process_manager, ejecutar_proceso, detener_proceso,
+)
 
+import asyncio
+import json as _json
+from fastapi.responses import StreamingResponse as _SR
+
+
+# ===== AGENT DEV: FASE A =====
 
 @app.post("/agent/analyze", response_model=PlanCompleto)
 def endpoint_agent_analyze(
     req: AnalyzeRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """
-    Analiza el brief, elige el stack óptimo y propone la estructura.
-    NO ejecuta nada, solo devuelve el plan para que el usuario lo apruebe.
-    """
     try:
         plan = generar_plan_completo(req.brief, req.nombre_sugerido)
         return plan
@@ -359,24 +386,9 @@ def endpoint_agent_analyze(
         raise HTTPException(status_code=500, detail=f"Error en análisis: {str(e)}")
 
 
-# ===== AGENT DEV: FASE B (Generación de código) =====
-
-import asyncio
-import json as _json
-from pathlib import Path as _Path
-from fastapi.responses import StreamingResponse as _SR
-
-from src.agent_dev.schemas import PlanCompleto, ExecuteRequest
-from src.agent_dev.coder import generar_archivo
-from src.agent_dev.file_writer import (
-    crear_estructura, escribir_archivo, listar_proyectos_generados,
-    eliminar_proyecto, GENERATED_DIR,
-)
-from src.agent_dev.job_manager import job_manager
-
+# ===== AGENT DEV: FASE B =====
 
 async def _ejecutar_generacion(job, plan: PlanCompleto):
-    """Corrutina que genera todos los archivos uno por uno."""
     try:
         job.estado = "generando"
         job.agregar_evento({
@@ -386,7 +398,6 @@ async def _ejecutar_generacion(job, plan: PlanCompleto):
             "total": job.total,
         })
 
-        # Crear estructura de carpetas
         try:
             raiz = crear_estructura(
                 plan.estructura.nombre_proyecto,
@@ -413,7 +424,6 @@ async def _ejecutar_generacion(job, plan: PlanCompleto):
                 break
 
             job.actual = i
-            # Elegir modelo y avisar
             from src.agent_dev.coder import elegir_modelo
             modelo = elegir_modelo(archivo.ruta)
 
@@ -426,7 +436,6 @@ async def _ejecutar_generacion(job, plan: PlanCompleto):
                 "modelo": modelo,
             })
 
-            # Generar (bloqueante, pero dentro de un thread para no bloquear)
             resultado = await asyncio.to_thread(
                 generar_archivo,
                 plan,
@@ -436,7 +445,6 @@ async def _ejecutar_generacion(job, plan: PlanCompleto):
             )
 
             if resultado["exito"]:
-                # Escribir a disco
                 try:
                     write_res = escribir_archivo(
                         raiz, archivo.ruta, resultado["contenido"]
@@ -474,7 +482,6 @@ async def _ejecutar_generacion(job, plan: PlanCompleto):
                     "error": resultado["error"],
                 })
 
-        # Fin
         job.estado = "terminado"
         from datetime import datetime as _dt
         job.fin = _dt.now()
@@ -496,7 +503,6 @@ async def _ejecutar_generacion(job, plan: PlanCompleto):
         job.fin = _dt.now()
         job.agregar_evento({"tipo": "error", "mensaje": str(e)})
     finally:
-        # Marcar el fin de la cola
         try:
             job.cola.put_nowait(None)
         except Exception:
@@ -508,23 +514,55 @@ async def endpoint_agent_generate(
     req: ExecuteRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """
-    Lanza la generación de código en background.
-    Devuelve job_id para consultar el progreso por SSE.
-    """
     if not req.autorizado:
         raise HTTPException(status_code=400, detail="Debes autorizar la ejecución")
 
     total = len(req.plan.estructura.archivos)
-    job = job_manager.crear_job(req.plan.estructura.nombre_proyecto, total)
 
-    # Lanzar la tarea en background
+    project_id_nuevo = str(uuid.uuid4())[:8]
+    project_id_db = crear_proyecto(
+        project_id_nuevo,
+        usuario,
+        req.plan.estructura.nombre_proyecto,
+        req.plan.estructura.nombre_proyecto,
+        origen="ia",
+    )
+
+    if project_id_db == project_id_nuevo:
+        chat_id_db = str(uuid.uuid4())[:8]
+        crear_chat(chat_id_db, project_id_db, "Chat del proyecto")
+
+        if req.historial_conversacion:
+            for msg in req.historial_conversacion:
+                rol = msg.get("role", "user")
+                contenido = msg.get("content", "")
+                if contenido:
+                    guardar_mensaje(
+                        chat_id_db,
+                        rol,
+                        contenido,
+                        "niah-refine" if rol == "assistant" else None,
+                    )
+    else:
+        chats_existentes = listar_chats(project_id_db)
+        chat_id_db = chats_existentes[0]["id"] if chats_existentes else None
+
+    job = job_manager.crear_job(
+        req.plan.estructura.nombre_proyecto,
+        total,
+        user_id=usuario,
+        project_id_db=project_id_db,
+    )
+
     asyncio.create_task(_ejecutar_generacion(job, req.plan))
 
     return {
         "job_id": job.job_id,
         "nombre": job.nombre_proyecto,
         "total": total,
+        "project_id_db": project_id_db,
+        "chat_id_db": chat_id_db,
+        "reutilizado": project_id_db != project_id_nuevo,
     }
 
 
@@ -533,22 +571,18 @@ async def endpoint_agent_stream(
     job_id: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """SSE con el progreso en vivo."""
     job = job_manager.obtener_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
 
     async def event_generator():
-        # Primero, reenviar eventos ya generados (por si se reconectó)
         for ev in job.eventos:
             yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
 
-        # Si ya terminó, cerrar
         if job.estado in ("terminado", "error"):
             yield "data: {\"tipo\":\"cerrado\"}\n\n"
             return
 
-        # Esperar eventos nuevos
         while True:
             try:
                 evento = await asyncio.wait_for(job.cola.get(), timeout=60)
@@ -569,7 +603,6 @@ def endpoint_agent_status(
     job_id: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Estado actual del job (fallback si se corta el SSE)."""
     job = job_manager.obtener_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
@@ -589,7 +622,6 @@ def endpoint_agent_status(
 def endpoint_listar_proyectos_generados(
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Lista los proyectos generados en disco."""
     return {"proyectos": listar_proyectos_generados()}
 
 
@@ -598,219 +630,443 @@ def endpoint_eliminar_proyecto_generado(
     nombre: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """Elimina un proyecto generado."""
-    if not eliminar_proyecto(nombre):
+    if not eliminar_proyecto_generado(nombre):
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     return {"status": "ok"}
 
 
-# ===== AGENT DEV: FASE C (Validación + Corrección) =====
+# ===== AGENT DEV: Archivos del proyecto generado =====
 
-from src.agent_dev.tester import validar_proyecto
-from src.agent_dev.file_writer import GENERATED_DIR
-
-
-async def _ejecutar_validacion(job, plan: PlanCompleto, nombre_proyecto: str):
-    """Corrutina que valida el proyecto generado."""
-    from src.agent_dev.job_manager import job_manager
-    import asyncio
-
-    try:
-        job.estado = "validando"
-
-        raiz = GENERATED_DIR / nombre_proyecto
-        if not raiz.exists():
-            job.agregar_evento({
-                "tipo": "error",
-                "mensaje": f"Proyecto no encontrado: {nombre_proyecto}",
-            })
-            job.estado = "error"
-            return
-
-        job.agregar_evento({
-            "tipo": "validacion_inicio",
-            "job_id": job.job_id,
-            "nombre": nombre_proyecto,
-            "comandos_totales": (
-                len(plan.estructura.comandos_setup)
-                + len(plan.estructura.comandos_compilacion)
-                + len(plan.estructura.comandos_tests)
-            ),
-        })
-
-        # Callback para emitir eventos
-        async def emitir(evento):
-            job.agregar_evento(evento)
-            # Si es autorización requerida, pausar hasta que llegue respuesta
-            if evento.get("tipo") == "autorizacion_requerida":
-                # Esperar respuesta del usuario
-                try:
-                    respuesta = await asyncio.wait_for(
-                        job.cola_auth.get(), timeout=120
-                    )
-                    if respuesta.get("permitir"):
-                        if respuesta.get("siempre"):
-                            job.autorizaciones_sesion.add(evento["comando"])
-                        # Emitir evento de autorizado
-                        job.agregar_evento({
-                            "tipo": "autorizacion_recibida",
-                            "comando": evento["comando"],
-                            "permitido": True,
-                            "siempre": respuesta.get("siempre", False),
-                        })
-                    else:
-                        job.agregar_evento({
-                            "tipo": "autorizacion_recibida",
-                            "comando": evento["comando"],
-                            "permitido": False,
-                        })
-                except asyncio.TimeoutError:
-                    job.agregar_evento({
-                        "tipo": "autorizacion_timeout",
-                        "comando": evento["comando"],
-                    })
-
-        # Ejecutar validación
-        resumen = await validar_proyecto(
-            plan, raiz, job.autorizaciones_sesion, emitir
-        )
-
-        job.estado = "terminado"
-        from datetime import datetime as _dt
-        job.fin = _dt.now()
-        job.resultado = resumen
-
-        job.agregar_evento({
-            "tipo": "validacion_fin",
-            **resumen,
-            "tiempo_total": round(job.duracion_seg(), 1),
-        })
-
-    except Exception as e:
-        job.estado = "error"
-        from datetime import datetime as _dt
-        job.fin = _dt.now()
-        job.agregar_evento({"tipo": "error", "mensaje": str(e)})
-    finally:
-        try:
-            job.cola.put_nowait(None)
-        except Exception:
-            pass
-
-
-class ValidateRequest(BaseModel):
-    plan: PlanCompleto
-    nombre_proyecto: str
-
-
-class AuthorizeRequest(BaseModel):
-    comando: str
-    permitir: bool
-    siempre: bool = False
-
-
-@app.post("/agent/validate")
-async def endpoint_agent_validate(
-    req: ValidateRequest,
+@app.get("/agent/projects/{nombre}/files")
+def endpoint_agent_project_files(
+    nombre: str,
     usuario: str = Depends(obtener_usuario_actual),
 ):
-    """
-    Lanza la validación (compilación + tests + corrección automática)
-    de un proyecto ya generado.
-    """
-    raiz = GENERATED_DIR / req.nombre_proyecto
+    raiz = GENERATED_DIR / nombre
     if not raiz.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Proyecto no encontrado: {req.nombre_proyecto}",
-        )
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    total_comandos = (
-        len(req.plan.estructura.comandos_setup)
-        + len(req.plan.estructura.comandos_compilacion)
-        + len(req.plan.estructura.comandos_tests)
-    )
-    job = job_manager.crear_job(req.nombre_proyecto, total_comandos)
+    archivos = []
+    for f in sorted(raiz.rglob("*")):
+        if f.is_file() and ".bak" not in str(f):
+            try:
+                rel = f.relative_to(raiz)
+                archivos.append({
+                    "ruta": str(rel),
+                    "bytes": f.stat().st_size,
+                })
+            except ValueError:
+                continue
+    return {"archivos": archivos}
 
-    # Lanzar en background
-    asyncio.create_task(_ejecutar_validacion(job, req.plan, req.nombre_proyecto))
+
+@app.get("/agent/projects/{nombre}/file")
+def endpoint_agent_project_file_content(
+    nombre: str,
+    ruta: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    from src.agent_dev.file_writer import validar_ruta, RutaInseguraError
+
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    try:
+        ruta_segura = validar_ruta(ruta)
+    except RutaInseguraError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    archivo = raiz / ruta_segura
+    if not archivo.exists() or not archivo.is_file():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    try:
+        contenido = archivo.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"ruta": ruta_segura, "contenido": contenido}
+
+
+# ===== AGENT DEV: Acciones sobre proyecto generado =====
+
+class ActionRequest(BaseModel):
+    accion: str  # "compile", "test", "setup", "run"
+
+
+@app.get("/agent/projects/{nombre}/info")
+def endpoint_agent_project_info(
+    nombre: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Devuelve info completa del proyecto generado."""
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    archivos = []
+    total_bytes = 0
+    for f in sorted(raiz.rglob("*")):
+        if f.is_file() and ".bak" not in str(f):
+            try:
+                rel = f.relative_to(raiz)
+                size = f.stat().st_size
+                total_bytes += size
+                archivos.append({
+                    "ruta": str(rel),
+                    "bytes": size,
+                })
+            except ValueError:
+                continue
 
     return {
-        "job_id": job.job_id,
-        "nombre": req.nombre_proyecto,
-        "comandos_totales": total_comandos,
+        "nombre": nombre,
+        "ruta": str(raiz.resolve()),
+        "carpeta_raiz": str(GENERATED_DIR.resolve()),
+        "archivos": archivos,
+        "total_archivos": len(archivos),
+        "total_bytes": total_bytes,
     }
 
 
-@app.post("/agent/authorize/{job_id}")
-async def endpoint_agent_authorize(
-    job_id: str,
-    req: AuthorizeRequest,
+@app.post("/agent/projects/{nombre}/action")
+async def endpoint_agent_project_action(
+    nombre: str,
+    req: ActionRequest,
     usuario: str = Depends(obtener_usuario_actual),
 ):
     """
-    Responde a una solicitud de autorización de comando bloqueado.
+    Ejecuta una acción sobre el proyecto:
+    - compile: verifica sintaxis Python
+    - setup: instala dependencias
+    - test: instala dependencias (si hace falta), luego corre tests
+    - run: devuelve comandos para ejecutar en tu terminal
     """
-    job = job_manager.obtener_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job no encontrado")
+    from src.agent_dev.executor import ejecutar_comando, detectar_timeout
 
-    try:
-        job.cola_auth.put_nowait({
-            "comando": req.comando,
-            "permitir": req.permitir,
-            "siempre": req.siempre,
-        })
-    except asyncio.QueueFull:
-        raise HTTPException(status_code=429, detail="Cola de autorización llena")
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    return {"status": "ok", "comando": req.comando, "permitido": req.permitir}
+    accion = req.accion
+    comandos_map = {"compile": [], "setup": [], "test": []}
 
+    if accion == "setup":
+        if (raiz / "requirements.txt").exists():
+            comandos_map["setup"].append("pip install -r requirements.txt")
+        if (raiz / "package.json").exists():
+            comandos_map["setup"].append("npm install")
+        if not comandos_map["setup"]:
+            return {"accion": "setup", "resultados": [], "exitos": 0, "total": 0,
+                    "mensaje": "No hay dependencias que instalar"}
 
-# ===== AGENT DEV: Refinamiento iterativo =====
+    if accion == "compile":
+        if (raiz / "src").exists():
+            comandos_map["compile"].append("python -m py_compile src/*.py")
+        if (raiz / "main.py").exists():
+            comandos_map["compile"].append("python -m py_compile main.py")
+        if (raiz / "package.json").exists():
+            comandos_map["compile"].append("npm run build")
+        if not comandos_map["compile"]:
+            return {"accion": "compile", "resultados": [], "exitos": 0, "total": 0,
+                    "mensaje": "No hay nada que compilar"}
 
-from src.agent_dev.refiner import refinar_plan, generar_plan_actualizado
+    if accion == "test":
+        if (raiz / "requirements.txt").exists():
+            comandos_map["test"].append("pip install -r requirements.txt")
+        if (raiz / "package.json").exists():
+            comandos_map["test"].append("npm install")
+        if (raiz / "tests").exists():
+            comandos_map["test"].append("python -m pytest tests/ -v")
+        elif (raiz / "package.json").exists():
+            comandos_map["test"].append("npm test")
+        if not comandos_map["test"]:
+            return {"accion": "test", "resultados": [], "exitos": 0, "total": 0,
+                    "mensaje": "No hay tests para ejecutar"}
 
-
-class ChatRefineRequest(BaseModel):
-    brief: str
-    historial: list = []
-    plan_actual: dict | None = None
-
-
-class ChatRefineResponse(BaseModel):
-    listo: bool
-    preguntas: list[str] = []
-    resumen: str = ""
-    cambios_sugeridos: str = ""
-    info_web_usada: str | None = None
-    plan_actualizado: dict | None = None
-
-
-@app.post("/agent/refine", response_model=ChatRefineResponse)
-def endpoint_agent_refine(
-    req: ChatRefineRequest,
-    usuario: str = Depends(obtener_usuario_actual),
-):
-    """
-    Refina el plan conversacionalmente.
-    """
-    try:
-        resultado = refinar_plan(req.brief, req.historial, req.plan_actual)
-
-        plan_actualizado = None
-        if resultado["listo"]:
-            plan_actualizado = generar_plan_actualizado(
-                req.brief, req.historial
+    if accion == "run":
+        comandos_run = []
+        if (raiz / "backend" / "main.py").exists():
+            comandos_run.append(
+                f"cd {raiz}/backend && pip install -r requirements.txt && uvicorn main:app --reload"
             )
+        if (raiz / "frontend" / "package.json").exists():
+            comandos_run.append(f"cd {raiz}/frontend && npm install && npm run dev")
+        if (raiz / "main.py").exists():
+            comandos_run.append(f"cd {raiz} && python main.py")
+        if (raiz / "src" / "main.py").exists():
+            comandos_run.append(f"cd {raiz} && python src/main.py")
+        if (raiz / "package.json").exists() and not (raiz / "frontend").exists():
+            comandos_run.append(f"cd {raiz} && npm install && npm start")
+        if not comandos_run:
+            comandos_run.append(f"cd {raiz} && ls -la")
+        return {"accion": "run", "comandos": comandos_run,
+                "nota": "Ejecuta estos comandos en tu terminal."}
 
-        return ChatRefineResponse(
-            listo=resultado["listo"],
-            preguntas=resultado["preguntas"],
-            resumen=resultado["resumen"],
-            cambios_sugeridos=resultado["cambios_sugeridos"],
-            info_web_usada=resultado["info_web_usada"],
-            plan_actualizado=plan_actualizado,
+    if accion not in comandos_map:
+        raise HTTPException(status_code=400, detail=f"Acción no soportada: {accion}")
+
+    resultados = []
+    for cmd in comandos_map[accion]:
+        timeout = detectar_timeout(cmd)
+        resultado = await ejecutar_comando(cmd, raiz, timeout=timeout)
+        resultados.append(resultado)
+
+    return {
+        "accion": accion,
+        "resultados": resultados,
+        "exitos": sum(1 for r in resultados if r["exito"]),
+        "total": len(resultados),
+    }
+
+
+# ===== AGENT DEV: Ejecutar proyecto en background =====
+
+class RunRequest(BaseModel):
+    comando: Optional[str] = None
+    timeout: int = 300
+
+
+def _detectar_comando_run(raiz) -> str:
+    """Detecta el comando más apropiado para ejecutar el proyecto."""
+    if (raiz / "backend" / "main.py").exists():
+        return (
+            "pip install -r backend/requirements.txt 2>/dev/null; "
+            "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000"
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al refinar: {str(e)}")
+    if (raiz / "frontend" / "package.json").exists():
+        return "cd frontend && npm install 2>/dev/null; npm run dev"
+    if (raiz / "package.json").exists():
+        return "npm install 2>/dev/null; npm start"
+    if (raiz / "main.py").exists():
+        return "pip install -r requirements.txt 2>/dev/null; python main.py"
+    if (raiz / "src" / "main.py").exists():
+        return "cd src && python main.py"
+    py_files = list(raiz.glob("*.py"))
+    if py_files:
+        return f"python {py_files[0].name}"
+    return "ls -la"
+
+
+@app.post("/agent/projects/{nombre}/run")
+async def endpoint_agent_project_run(
+    nombre: str,
+    req: RunRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Lanza el proyecto en background. Devuelve run_id para SSE."""
+    from src.agent_dev.executor import analizar_comando
+
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    comando = req.comando or _detectar_comando_run(raiz)
+
+    analisis = analizar_comando(comando)
+    if analisis["accion"] == "bloqueado":
+        raise HTTPException(status_code=400, detail=f"Bloqueado: {analisis['razon']}")
+
+    proceso = process_manager.crear(nombre, comando, raiz)
+    process_manager.limpiar_viejos(max_procesos=10)
+
+    asyncio.create_task(ejecutar_proceso(proceso, timeout_segundos=req.timeout))
+
+    return {
+        "run_id": proceso.run_id,
+        "comando": comando,
+        "cwd": str(raiz),
+        "timeout": req.timeout,
+    }
+
+
+@app.get("/agent/projects/{nombre}/run/{run_id}/log")
+async def endpoint_agent_project_run_log(
+    nombre: str,
+    run_id: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """SSE con el log en vivo del proceso."""
+    proceso = process_manager.obtener(run_id)
+    if not proceso:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+
+    async def event_generator():
+        for linea in proceso.log:
+            yield f"data: {_json.dumps({'tipo': 'linea', 'texto': linea}, ensure_ascii=False)}\n\n"
+
+        if proceso.url_detectada:
+            yield f"data: {_json.dumps({'tipo': 'url_detectada', 'url': proceso.url_detectada}, ensure_ascii=False)}\n\n"
+
+        if proceso.estado in ("terminado", "error", "detenido"):
+            yield f"data: {_json.dumps({'tipo': 'fin', 'estado': proceso.estado, 'exit_code': proceso.exit_code}, ensure_ascii=False)}\n\n"
+            yield "data: {\"tipo\":\"cerrado\"}\n\n"
+            return
+
+        while True:
+            try:
+                evento = await asyncio.wait_for(proceso.cola.get(), timeout=60)
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+                continue
+
+            if evento is None:
+                yield f"data: {_json.dumps({'tipo': 'fin', 'estado': proceso.estado, 'exit_code': proceso.exit_code}, ensure_ascii=False)}\n\n"
+                yield "data: {\"tipo\":\"cerrado\"}\n\n"
+                break
+
+            yield f"data: {_json.dumps(evento, ensure_ascii=False)}\n\n"
+
+    return _SR(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/agent/projects/{nombre}/run/{run_id}/status")
+def endpoint_agent_project_run_status(
+    nombre: str,
+    run_id: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    proceso = process_manager.obtener(run_id)
+    if not proceso:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    return {
+        "run_id": proceso.run_id,
+        "estado": proceso.estado,
+        "url_detectada": proceso.url_detectada,
+        "exit_code": proceso.exit_code,
+        "duracion": round(proceso.duracion_seg(), 1),
+        "log": proceso.log[-50:],
+    }
+
+
+@app.delete("/agent/projects/{nombre}/run/{run_id}")
+async def endpoint_agent_project_run_stop(
+    nombre: str,
+    run_id: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    proceso = process_manager.obtener(run_id)
+    if not proceso:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    ok = await detener_proceso(proceso)
+    return {"status": "ok" if ok else "no_proceso_activo"}
+
+
+# ===== AGENT DEV: Fix automático de archivos =====
+
+class FixRequest(BaseModel):
+
+    archivo: str
+    error: str
+
+
+@app.post("/agent/projects/{nombre}/fix")
+async def endpoint_agent_project_fix(
+    nombre: str,
+    req: FixRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Corrige un archivo del proyecto usando el modelo fixer."""
+    from src.agent_dev.file_writer import validar_ruta, RutaInseguraError
+    from src.agent_dev.fixer import corregir_archivo
+
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    try:
+        ruta_segura = validar_ruta(req.archivo)
+    except RutaInseguraError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    archivo = raiz / ruta_segura
+    if not archivo.exists() or not archivo.is_file():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    contenido_actual = archivo.read_text(encoding="utf-8", errors="replace")
+
+    resultado = await asyncio.to_thread(
+        corregir_archivo,
+        archivo,
+        contenido_actual,
+        req.error,
+        f"Proyecto: {nombre}",
+    )
+
+    if not resultado["exito"]:
+        raise HTTPException(
+            status_code=500,
+            detail=f"El fixer no pudo corregir: {resultado['error']}",
+        )
+
+    backup = archivo.with_suffix(archivo.suffix + ".bak")
+    if not backup.exists():
+        backup.write_text(contenido_actual, encoding="utf-8")
+
+    archivo.write_text(resultado["contenido_nuevo"], encoding="utf-8")
+
+    return {
+        "archivo": ruta_segura,
+        "bytes_anteriores": len(contenido_actual.encode("utf-8")),
+        "bytes_nuevos": len(resultado["contenido_nuevo"].encode("utf-8")),
+        "modelo": resultado["modelo"],
+        "contenido_nuevo": resultado["contenido_nuevo"][:500],
+    }
+
+
+@app.post("/agent/projects/{nombre}/open")
+def endpoint_agent_project_open(
+    nombre: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Abre la carpeta del proyecto en el explorador del sistema."""
+    import subprocess
+    import platform
+
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    try:
+        sistema = platform.system()
+        if sistema == "Linux":
+            subprocess.Popen(["xdg-open", str(raiz)])
+        elif sistema == "Darwin":
+            subprocess.Popen(["open", str(raiz)])
+        elif sistema == "Windows":
+            subprocess.Popen(["explorer", str(raiz)])
+        else:
+            raise HTTPException(status_code=400, detail=f"Sistema no soportado: {sistema}")
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="No se encontró el comando para abrir el explorador",
+        )
+
+    return {"status": "ok", "ruta": str(raiz)}
+
+
+# ===== AGENT DEV: Guardar resultado como mensaje del sistema =====
+
+class SystemMessageRequest(BaseModel):
+    chat_id: str
+    contenido: str
+
+
+@app.post("/agent/system-message")
+async def endpoint_agent_system_message(
+    req: SystemMessageRequest,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Guarda un mensaje del sistema (resultado de acciones) en el chat."""
+    if not verificar_chat_propietario(req.chat_id, usuario):
+        raise HTTPException(status_code=403, detail="No tienes permiso")
+
+    guardar_mensaje(
+        req.chat_id,
+        "system",
+        req.contenido,
+        "sistema",
+    )
+    return {"status": "ok"}

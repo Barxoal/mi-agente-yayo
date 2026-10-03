@@ -71,3 +71,7 @@ class ExecuteRequest(BaseModel):
     """Request para ejecutar un plan ya aprobado."""
     plan: PlanCompleto
     autorizado: bool = Field(False, description="Debe ser True para ejecutar")
+    historial_conversacion: List[dict] = Field(
+        default_factory=list,
+        description="Historial del chat con NIAH antes de aprobar el plan",
+    )

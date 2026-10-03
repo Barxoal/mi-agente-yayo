@@ -14,6 +14,7 @@ def init_db():
             user_id TEXT NOT NULL,
             nombre TEXT NOT NULL,
             tipo TEXT NOT NULL,
+            origen TEXT DEFAULT 'manual',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -43,15 +44,38 @@ def init_db():
 
 # ===== PROYECTOS =====
 
-def crear_proyecto(project_id: str, user_id: str, nombre: str, tipo: str):
+def crear_proyecto(
+    project_id: str,
+    user_id: str,
+    nombre: str,
+    tipo: str,
+    origen: str = "manual",
+):
+    """
+    Crea un proyecto. Si ya existe uno con el mismo nombre para este usuario,
+    devuelve el ID existente (evita duplicados).
+    Devuelve el ID del proyecto (nuevo o existente).
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
     c.execute(
-        "INSERT OR IGNORE INTO projects (id, user_id, nombre, tipo) VALUES (?, ?, ?, ?)",
-        (project_id, user_id, nombre, tipo),
+        "SELECT id FROM projects WHERE user_id = ? AND nombre = ?",
+        (user_id, nombre),
+    )
+    existente = c.fetchone()
+    if existente:
+        conn.close()
+        return existente[0]
+
+    c.execute(
+        "INSERT OR IGNORE INTO projects (id, user_id, nombre, tipo, origen) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (project_id, user_id, nombre, tipo, origen),
     )
     conn.commit()
     conn.close()
+    return project_id
 
 
 def listar_proyectos(user_id: str):
@@ -59,13 +83,20 @@ def listar_proyectos(user_id: str):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
-        "SELECT id, nombre, tipo, created_at FROM projects WHERE user_id = ? ORDER BY created_at DESC",
+        "SELECT id, nombre, tipo, created_at, origen FROM projects "
+        "WHERE user_id = ? ORDER BY created_at DESC",
         (user_id,),
     )
     rows = c.fetchall()
     conn.close()
     return [
-        {"id": r[0], "nombre": r[1], "tipo": r[2], "created_at": r[3]}
+        {
+            "id": r[0],
+            "nombre": r[1],
+            "tipo": r[2],
+            "created_at": r[3],
+            "origen": r[4] if len(r) > 4 and r[4] else "manual",
+        }
         for r in rows
     ]
 
@@ -86,7 +117,6 @@ def verificar_propietario(project_id: str, user_id: str) -> bool:
 def eliminar_proyecto(project_id: str, user_id: str):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Verificar propietario
     c.execute("SELECT user_id FROM projects WHERE id = ?", (project_id,))
     row = c.fetchone()
     if not row or row[0] != user_id:
@@ -168,18 +198,35 @@ def guardar_mensaje(chat_id: str, role: str, content: str, model: str = None):
 
 
 def obtener_historial(chat_id: str, limit: int = 50):
+    """
+    Devuelve el historial del chat.
+    Los mensajes con model='sistema' se devuelven con role='system'
+    para que se traten como contexto y no como conversación.
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
-        "SELECT role, content, model, timestamp FROM messages WHERE chat_id = ? ORDER BY id ASC LIMIT ?",
+        "SELECT role, content, model, timestamp FROM messages "
+        "WHERE chat_id = ? ORDER BY id ASC LIMIT ?",
         (chat_id, limit),
     )
     rows = c.fetchall()
     conn.close()
-    return [
-        {"role": r[0], "content": r[1], "model": r[2], "timestamp": r[3]}
-        for r in rows
-    ]
+
+    resultado = []
+    for r in rows:
+        role = r[0]
+        model = r[2]
+        # Los mensajes guardados como "sistema" van con role=system
+        if model == "sistema":
+            role = "system"
+        resultado.append({
+            "role": role,
+            "content": r[1],
+            "model": model,
+            "timestamp": r[3],
+        })
+    return resultado
 
 
 def limpiar_historial(chat_id: str, user_id: str):

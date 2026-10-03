@@ -20,6 +20,8 @@ import {
 import MessageContent from "./MessageContent";
 import Login from "./Login";
 import AgentCreator from "./AgentCreator";
+import GenerationProgress from "./GenerationProgress";
+import ProjectPanel from "./ProjectPanel";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -29,6 +31,7 @@ interface Proyecto {
   nombre: string;
   tipo: string;
   created_at: string;
+  origen?: string;
 }
 
 interface Chat {
@@ -38,7 +41,7 @@ interface Chat {
 }
 
 interface Message {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   model?: string;
 }
@@ -86,6 +89,10 @@ function App() {
   const [modalAgent, setModalAgent] = useState(false);
   const [planGenerado, setPlanGenerado] = useState<any>(null);
   const [nombreGenerado, setNombreGenerado] = useState<string>("");
+  const [generandoPlan, setGenerandoPlan] = useState<any>(null);
+  const [historialPlan, setHistorialPlan] = useState<
+    { role: string; content: string }[]
+  >([]);
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
@@ -165,7 +172,7 @@ function App() {
     setMessages(
       (data.historial || []).map(
         (h: { role: string; content: string; model: string }) => ({
-          role: h.role as "user" | "assistant",
+          role: h.role as "user" | "assistant" | "system",
           content: h.content,
           model: h.model,
         })
@@ -385,6 +392,12 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
+  // Determinar si mostrar ProjectPanel (proyecto IA + chat vacío)
+  const mostrarProjectPanel =
+    proyectoActivo?.origen === "ia" &&
+    chatActivo &&
+    messages.length === 0;
+
   return (
     <div className="layout">
       {sidebarAbierto && (
@@ -432,7 +445,7 @@ function App() {
                 onClick={() => seleccionarProyecto(p)}
               >
                 <span className="proyecto-nombre">
-                  <FolderClosed size={14} />
+                  {p.origen === "ia" ? <Wand2 size={14} /> : <FolderClosed size={14} />}
                   {p.nombre}
                 </span>
                 <button
@@ -552,23 +565,66 @@ function App() {
               <p className="hint">Crea uno nuevo con el botón de arriba.</p>
             </div>
           )}
-          {proyectoActivo && chatActivo && messages.length === 0 && (
-            <div className="empty">
-              <p>Chat vacío</p>
-              <p className="hint">
-                Escribe tu primer mensaje o sube documentos al proyecto para
-                que NIAH los consulte.
-              </p>
-            </div>
+
+          {/* Opción C: ProjectPanel si es IA y el chat está vacío */}
+          {mostrarProjectPanel && token && proyectoActivo && chatActivo && (
+            <ProjectPanel
+              token={token}
+              nombreProyecto={proyectoActivo.nombre}
+              chatId={chatActivo.id}
+              onResultado={async (mensaje) => {
+                if (!chatActivo || !mensaje) return;
+                try {
+                  await apiFetch(`${API_URL}/agent/system-message`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      chat_id: chatActivo.id,
+                      contenido: mensaje,
+                    }),
+                  });
+                } catch {}
+                await cargarHistorial(chatActivo.id);
+              }}
+            />
           )}
-          {messages.map((msg, i) => (
-            <div key={i} className={`message ${msg.role}`}>
-              <strong>{msg.role === "user" ? "Tú" : "NIAH"}:</strong>
-              <div className="message-body">
-                <MessageContent content={msg.content} />
+          {/* Chat vacío normal (no IA o ya tiene ProjectPanel) */}
+          {proyectoActivo &&
+            chatActivo &&
+            messages.length === 0 &&
+            !mostrarProjectPanel && (
+              <div className="empty">
+                <p>Chat vacío</p>
+                <p className="hint">
+                  Escribe tu primer mensaje o sube documentos al proyecto para
+                  que NIAH los consulte.
+                </p>
               </div>
-            </div>
-          ))}
+            )}
+
+          {messages.map((msg, i) => {
+            if (msg.role === "system") {
+              return (
+                <div key={i} className="message-system">
+                  <div className="message-system-header">
+                    <Sparkles size={12} />
+                    <span>Resultado del sistema</span>
+                  </div>
+                  <div className="message-body">
+                    <MessageContent content={msg.content} />
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={i} className={`message ${msg.role}`}>
+                <strong>{msg.role === "user" ? "Tú" : "NIAH"}:</strong>
+                <div className="message-body">
+                  <MessageContent content={msg.content} />
+                </div>
+              </div>
+            );
+          })}
         </section>
 
         <footer>
@@ -721,12 +777,29 @@ function App() {
         <AgentCreator
           token={token}
           onClose={() => setModalAgent(false)}
-          onPlanReady={(plan, nombre) => {
+          onPlanReady={(plan, nombre, historial) => {
             setPlanGenerado(plan);
             setNombreGenerado(nombre);
+            setHistorialPlan(historial);
+            setGenerandoPlan(plan);
             setModalAgent(false);
-            console.log("Plan generado:", plan);
-            console.log("Nombre:", nombre);
+          }}
+        />
+      )}
+
+      {generandoPlan && token && (
+        <GenerationProgress
+          token={token}
+          plan={generandoPlan}
+          historial={historialPlan}
+          nombreProyecto={nombreGenerado}
+          onClose={() => {
+            setGenerandoPlan(null);
+            setHistorialPlan([]);
+            cargarProyectos();
+          }}
+          onGenerated={() => {
+            cargarProyectos();
           }}
         />
       )}

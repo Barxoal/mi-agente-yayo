@@ -7,7 +7,14 @@ from datetime import datetime
 
 
 class Job:
-    def __init__(self, job_id: str, nombre_proyecto: str, total_archivos: int):
+    def __init__(
+        self,
+        job_id: str,
+        nombre_proyecto: str,
+        total_archivos: int,
+        user_id: str = "",
+        project_id_db: str = "",
+    ):
         self.job_id = job_id
         self.nombre_proyecto = nombre_proyecto
         self.total = total_archivos
@@ -21,6 +28,9 @@ class Job:
         self.fin: Optional[datetime] = None
         self.resultado: Optional[dict] = None
         self.cancelado = False
+        # Para vincular el proyecto con la DB
+        self.user_id = user_id
+        self.project_id_db = project_id_db
 
     def agregar_evento(self, evento: dict):
         """Agrega un evento a la cola y a la lista."""
@@ -39,9 +49,21 @@ class JobManager:
     def __init__(self):
         self.jobs: Dict[str, Job] = {}
 
-    def crear_job(self, nombre_proyecto: str, total_archivos: int) -> Job:
+    def crear_job(
+        self,
+        nombre_proyecto: str,
+        total_archivos: int,
+        user_id: str = "",
+        project_id_db: str = "",
+    ) -> Job:
         job_id = str(uuid.uuid4())[:8]
-        job = Job(job_id, nombre_proyecto, total_archivos)
+        job = Job(
+            job_id,
+            nombre_proyecto,
+            total_archivos,
+            user_id=user_id,
+            project_id_db=project_id_db,
+        )
         self.jobs[job_id] = job
         return job
 

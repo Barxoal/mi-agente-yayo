@@ -11,6 +11,19 @@ def _mensajes(mensaje: str, chat_id: str, project_id: str = None) -> list:
     historial = obtener_historial(chat_id, limit=20)
     mensajes = [{"role": "system", "content": NIAH_PROMPT}]
 
+    # Instrucción para manejar contexto del sistema
+    mensajes.append({
+        "role": "system",
+        "content": (
+            "IMPORTANTE: En el historial puede haber bloques marcados como "
+            "[CONTEXTO DEL SISTEMA]. Estos son resultados automáticos de acciones "
+            "(compilar, test, ejecutar) que el usuario ejecutó. NO son preguntas "
+            "del usuario y NO debes responderlos. Úsalos solo como contexto si el "
+            "usuario pregunta algo relacionado. Si el usuario te saluda o pregunta "
+            "algo no relacionado, ignora los bloques de contexto."
+        ),
+    })
+
     # Si hay project_id, buscar contexto en documentos indexados
     if project_id:
         contexto = buscar_contexto(project_id, mensaje)
@@ -25,8 +38,25 @@ def _mensajes(mensaje: str, chat_id: str, project_id: str = None) -> list:
                 ),
             })
 
+    # Añadir historial
     for h in historial:
-        mensajes.append({"role": h["role"], "content": h["content"]})
+        role = h["role"]
+        content = h["content"]
+
+        # Los mensajes de sistema van como "user" con prefijo especial
+        # (Ollama solo permite un "system" al inicio)
+        if role == "system":
+            mensajes.append({
+                "role": "user",
+                "content": f"[CONTEXTO DEL SISTEMA - NO RESPONDER DIRECTAMENTE]\n{content}",
+            })
+            mensajes.append({
+                "role": "assistant",
+                "content": "Entendido, tomo nota de ese contexto.",
+            })
+        else:
+            mensajes.append({"role": role, "content": content})
+
     mensajes.append({"role": "user", "content": mensaje})
     return mensajes
 

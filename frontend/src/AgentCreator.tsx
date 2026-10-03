@@ -23,7 +23,11 @@ interface MensajeChat {
 interface Props {
   token: string;
   onClose: () => void;
-  onPlanReady: (plan: any, nombreSugerido: string) => void;
+  onPlanReady: (
+    plan: any,
+    nombreSugerido: string,
+    historial: { role: string; content: string }[]
+  ) => void;
 }
 
 export default function AgentCreator({ token, onClose, onPlanReady }: Props) {
@@ -78,7 +82,6 @@ export default function AgentCreator({ token, onClose, onPlanReady }: Props) {
         setInfoWeb(data.info_web_usada);
       }
 
-      // Construir respuesta para el chat
       let respuesta = "";
       if (data.listo) {
         respuesta = `✅ ¡Plan listo!\n\n${data.resumen || "Revisa el plan a continuación."}`;
@@ -140,7 +143,15 @@ export default function AgentCreator({ token, onClose, onPlanReady }: Props) {
 
   const aprobarPlan = () => {
     if (!planListo) return;
-    onPlanReady(planListo, planListo.estructura.nombre_proyecto);
+    const historialLimpio = historial.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    onPlanReady(
+      planListo,
+      planListo.estructura.nombre_proyecto,
+      historialLimpio
+    );
   };
 
   // ===== VISTA: BRIEF INICIAL =====
