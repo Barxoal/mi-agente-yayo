@@ -35,6 +35,11 @@ export default function EditPlan({
   const [error, setError] = useState("");
   const [detallesAbiertos, setDetallesAbiertos] = useState(false);
   const [alternativaSeleccionada, setAlternativaSeleccionada] = useState<number | null>(null);
+  // Estado post-aplicación (permite revertir)
+  const [aplicado, setAplicado] = useState(false);
+  const [backupDir, setBackupDir] = useState<string | null>(null);
+  const [resumenAplicado, setResumenAplicado] = useState("");
+  const [revirtiendo, setRevirtiendo] = useState(false);
 
   const riesgoColor =
     plan.riesgo === "alto"
@@ -104,15 +109,113 @@ export default function EditPlan({
         });
       }
 
-      resumen += `\n_Si algo falla, puedes revertir usando el backup_`;
+      resumen += `\n_Puedes deshacer los cambios si algo falla._`;
 
-      onAplicado(resumen, data.backup_dir);
+      // En vez de cerrar inmediatamente, mostrar panel de revertir
+      setResumenAplicado(resumen);
+      setBackupDir(data.backup_dir || null);
+      setAplicado(true);
     } catch {
       setError("Error de conexión");
     } finally {
       setAplicando(false);
     }
   };
+
+  const revertir = async () => {
+    if (!backupDir) return;
+    if (!confirm("¿Deshacer todos los cambios aplicados? Se restaurará el estado previo del proyecto.")) {
+      return;
+    }
+    setRevirtiendo(true);
+    setError("");
+    try {
+      const r = await fetch(
+        `${API_URL}/agent/projects/${nombreProyecto}/edit/revert`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ backup_dir: backupDir }),
+        }
+      );
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setError(data.detail || "Error revirtiendo los cambios");
+        setRevirtiendo(false);
+        return;
+      }
+      const resumenRevert = "↩️ **Cambios revertidos.** Se restauró el estado previo del proyecto usando el backup.";
+      onAplicado(resumenRevert, undefined);
+    } catch {
+      setError("Error de conexión");
+    } finally {
+      setRevirtiendo(false);
+    }
+  };
+
+  if (aplicado) {
+    return (
+      <div className="edit-plan">
+        <div className="edit-plan-aplicado">
+          <Check size={22} />
+          <div>
+            <strong>Cambios aplicados correctamente</strong>
+            <p>
+              El backup está guardado. Si algo no funciona como esperabas,
+              puedes deshacer los cambios.
+            </p>
+          </div>
+        </div>
+
+        <div className="edit-plan-resumen" style={{ marginTop: "0.5rem" }}>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              fontFamily: "inherit",
+              fontSize: "0.85rem",
+              margin: 0,
+              color: "var(--text-secondary, #6E6E73)",
+            }}
+          >
+            {resumenAplicado}
+          </pre>
+        </div>
+
+        {error && (
+          <div className="edit-plan-error">
+            <AlertCircle size={14} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="edit-plan-acciones">
+          <button
+            className="btn-revertir"
+            onClick={revertir}
+            disabled={revirtiendo}
+          >
+            {revirtiendo ? (
+              <Loader2 size={14} className="spin" />
+            ) : (
+              <Undo2 size={14} />
+            )}
+            <span>{revirtiendo ? "Revirtiendo..." : "Deshacer cambios"}</span>
+          </button>
+          <button
+            className="btn-cerrar"
+            onClick={() => onAplicado(resumenAplicado, backupDir || undefined)}
+            disabled={revirtiendo}
+          >
+            <Check size={14} />
+            <span>Listo</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="edit-plan">

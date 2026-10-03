@@ -2295,3 +2295,102 @@ footer button:disabled {
 .modal-run .modal-actions button.danger:hover {
   background: rgba(255, 59, 48, 0.2);
 }
+
+/* EditPlan — panel post-aplicación (revertir) */
+.edit-plan-aplicado {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: rgba(52, 199, 89, 0.1);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+  border-radius: 12px;
+  color: #1D7A3E;
+  margin-bottom: 1rem;
+}
+
+.edit-plan-aplicado > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #34C759;
+}
+
+.edit-plan-aplicado strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.95rem;
+}
+
+.edit-plan-aplicado p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #2E7D4F;
+  line-height: 1.5;
+}
+
+.edit-plan-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  background: rgba(255, 59, 48, 0.1);
+  color: #C0392B;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.edit-plan-acciones {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.edit-plan-acciones button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle, #D2D2D7);
+  background: var(--bg-elevated, #FFFFFF);
+  color: var(--text, #1D1D1F);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.edit-plan-acciones button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.edit-plan-acciones button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.edit-plan-acciones .btn-revertir {
+  border-color: rgba(255, 149, 0, 0.4);
+  background: rgba(255, 149, 0, 0.08);
+  color: #B8651B;
+}
+
+.edit-plan-acciones .btn-revertir:hover:not(:disabled) {
+  background: rgba(255, 149, 0, 0.15);
+  border-color: rgba(255, 149, 0, 0.6);
+}
+
+.edit-plan-acciones .btn-cerrar {
+  background: var(--ai-blue, #0A84FF);
+  color: white;
+  border-color: var(--ai-blue, #0A84FF);
+}
+
+.edit-plan-acciones .btn-cerrar:hover:not(:disabled) {
+  background: #0070E0;
+  border-color: #0070E0;
+}
