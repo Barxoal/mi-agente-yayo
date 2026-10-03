@@ -13,6 +13,8 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+import { notificar } from "./notifications";
+
 interface Props {
   token: string;
   nombreProyecto: string;
@@ -44,6 +46,24 @@ export default function RunModal({
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [log]);
+
+  // Notificación del SO al terminar la ejecución
+  useEffect(() => {
+    if (estado === "terminado") {
+      notificar({
+        titulo: "✅ Ejecución completa",
+        cuerpo: `Proyecto "${nombreProyecto}" terminó correctamente.${urlDetectada ? ` URL: ${urlDetectada}` : ""}`,
+        tag: `niah-run-${nombreProyecto}`,
+      });
+    } else if (estado === "error") {
+      notificar({
+        titulo: "❌ Error en la ejecución",
+        cuerpo: `"${nombreProyecto}" terminó con errores. Revisa el log.`,
+        tag: `niah-run-${nombreProyecto}`,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado]);
 
   useEffect(() => {
     // Auto-lanzar al montar

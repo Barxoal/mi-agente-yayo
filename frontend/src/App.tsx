@@ -16,6 +16,8 @@ import {
   LogOut,
   Menu,
   Wand2,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import MessageContent from "./MessageContent";
 import Login from "./Login";
@@ -25,7 +27,16 @@ import ProjectPanel from "./ProjectPanel";
 import EditPlan from "./EditPlan";
 import AnalizandoEdit from "./AnalizandoEdit";
 import RunModal from "./RunModal";
+import TestFixModal from "./TestFixModal";
 import UploadedFiles from "./UploadedFiles";
+import {
+  notificacionesSoportadas,
+  notificacionesActivas,
+  pedirPermiso,
+  desactivarNotificaciones,
+  activarNotificaciones,
+  permisoActual,
+} from "./notifications";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -83,6 +94,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(false);
   const [modalProyecto, setModalProyecto] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoTipo, setNuevoTipo] = useState("script");
@@ -105,6 +117,8 @@ function App() {
   const [instruccionActual, setInstruccionActual] = useState("");
   const [recargarUploads, setRecargarUploads] = useState(0);
   const [showRunModal, setShowRunModal] = useState(false);
+  const [showTestFixModal, setShowTestFixModal] = useState(false);
+  const [panelOculto, setPanelOculto] = useState(false);
   const recognitionRef = useRef<ReturnType<SpeechRecognitionType> | null>(null);
   const chatRef = useRef<HTMLElement>(null);
 
@@ -133,6 +147,34 @@ function App() {
     if (token) cargarProyectos();
   }, [token]);
 
+  // Sincronizar estado de notificaciones cuando hay sesión
+  useEffect(() => {
+    if (token && notificacionesSoportadas()) {
+      setNotifEnabled(notificacionesActivas());
+    }
+  }, [token]);
+
+  const toggleNotificaciones = async () => {
+    if (notifEnabled) {
+      desactivarNotificaciones();
+      setNotifEnabled(false);
+      return;
+    }
+    if (permisoActual() === "denied") {
+      alert(
+        "El navegador bloqueó las notificaciones para este sitio. " +
+          "Actívalas en la configuración del sitio para habilitarlas."
+      );
+      return;
+    }
+    const concedido = await pedirPermiso();
+    if (concedido) {
+      setNotifEnabled(true);
+    } else {
+      alert("Permiso de notificaciones denegado.");
+    }
+  };
+
   useEffect(() => {
     if (proyectoActivo) {
       cargarChats(proyectoActivo.id);
@@ -151,6 +193,11 @@ function App() {
       setChatActivo(chats[0]);
     }
   }, [chats, proyectoActivo, chatActivo]);
+
+  // Resetear ocultado del panel al cambiar de proyecto o chat
+  useEffect(() => {
+    setPanelOculto(false);
+  }, [proyectoActivo?.id, chatActivo?.id]);
 
   useEffect(() => {
     if (chatActivo) {
@@ -504,8 +551,8 @@ function App() {
 
   const mostrarProjectPanel =
     proyectoActivo?.origen === "ia" &&
-    chatActivo &&
-    messages.length === 0;
+    !!chatActivo &&
+    !panelOculto;
 
   return (
     <div className="layout">
@@ -629,6 +676,18 @@ function App() {
                 <span>Archivos ({documentos.length})</span>
               </button>
             )}
+            {proyectoActivo?.origen === "ia" &&
+              chatActivo &&
+              panelOculto && (
+                <button
+                  className="btn-docs"
+                  onClick={() => setPanelOculto(false)}
+                  title="Mostrar panel del proyecto"
+                >
+                  <Wand2 size={14} />
+                  <span>Panel</span>
+                </button>
+              )}
             {chatActivo && messages.length > 0 && (
               <button
                 className="btn-docs"
@@ -648,6 +707,19 @@ function App() {
               <Volume2 size={14} />
               <span>Voz</span>
             </label>
+            {notificacionesSoportadas() && (
+              <button
+                className={`btn-notif ${notifEnabled ? "activo" : ""}`}
+                onClick={toggleNotificaciones}
+                title={
+                  notifEnabled
+                    ? "Notificaciones activas — clic para desactivar"
+                    : "Activar notificaciones cuando terminen jobs"
+                }
+              >
+                {notifEnabled ? <Bell size={14} /> : <BellOff size={14} />}
+              </button>
+            )}
             <button
               className="btn-logout"
               onClick={handleLogout}
@@ -681,6 +753,8 @@ function App() {
               nombreProyecto={proyectoActivo.nombre}
               chatId={chatActivo.id}
               onRunRequest={() => setShowRunModal(true)}
+              onTestFixRequest={() => setShowTestFixModal(true)}
+              onHide={() => setPanelOculto(true)}
               onResultado={async (mensaje) => {
                 if (!chatActivo || !mensaje) return;
                 try {
@@ -978,6 +1052,27 @@ function App() {
           nombreProyecto={proyectoActivo.nombre}
           chatId={chatActivo.id}
           onClose={() => setShowRunModal(false)}
+          onFinalizado={async (resumen) => {
+            try {
+              await apiFetch(`${API_URL}/agent/system-message`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatActivo.id,
+                  contenido: resumen,
+                }),
+              });
+            } catch {}
+            await cargarHistorial(chatActivo.id);
+          }}
+        />
+      )}
+
+      {showTestFixModal && token && proyectoActivo && chatActivo && (
+        <TestFixModal
+          token={token}
+          nombreProyecto={proyectoActivo.nombre}
+          onClose={() => setShowTestFixModal(false)}
           onFinalizado={async (resumen) => {
             try {
               await apiFetch(`${API_URL}/agent/system-message`, {

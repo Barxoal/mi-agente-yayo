@@ -29,6 +29,8 @@ interface Props {
   nombreProyecto: string;
   onResultado: (mensaje: string) => void;
   onRunRequest?: () => void;
+  onTestFixRequest?: () => void;
+  onHide?: () => void;
 }
 
 export default function ProjectPanel({
@@ -36,6 +38,8 @@ export default function ProjectPanel({
   nombreProyecto,
   onResultado,
   onRunRequest,
+  onTestFixRequest,
+  onHide,
 }: Props) {
   const [info, setInfo] = useState<any>(null);
   const [cargando, setCargando] = useState(true);
@@ -308,6 +312,15 @@ export default function ProjectPanel({
             {(info.total_bytes / 1024).toFixed(1)} KB
           </p>
         </div>
+        {onHide && (
+          <button
+            className="project-hide-btn"
+            onClick={onHide}
+            title="Ocultar panel (vuelve a abrirlo con 'Panel' en la barra superior)"
+          >
+            <X size={16} />
+          </button>
+        )}
       </div>
 
       <div className="project-ruta">
@@ -345,15 +358,18 @@ export default function ProjectPanel({
         </button>
         <button
           className="proj-btn"
-          onClick={() => ejecutarAccion("test")}
+          onClick={() =>
+            onTestFixRequest ? onTestFixRequest() : ejecutarAccion("test")
+          }
           disabled={accionEnCurso !== null}
+          title="Ejecuta tests y los corrige automáticamente con IA (hasta 3 intentos)"
         >
           {accionEnCurso === "test" ? (
             <Loader2 size={14} className="spin" />
           ) : (
             <TestTube size={14} />
           )}
-          <span>Probar</span>
+          <span>Probar + Fix</span>
         </button>
         <button
           className="proj-btn primary"

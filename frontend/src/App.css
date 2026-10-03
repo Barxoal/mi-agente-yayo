@@ -2394,3 +2394,66 @@ footer button:disabled {
   background: #0070E0;
   border-color: #0070E0;
 }
+
+/* ═══════════════════════════════════════════════════════
+   Botón de notificaciones (campana) en el header
+   ═══════════════════════════════════════════════════════ */
+
+.btn-notif {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-tertiary, #6E6E73);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-notif:hover {
+  background: var(--bg-secondary, #F5F5F7);
+  color: var(--text, #1D1D1F);
+}
+
+.btn-notif.activo {
+  color: var(--ai-blue, #0A84FF);
+  background: rgba(10, 132, 255, 0.1);
+  border-color: rgba(10, 132, 255, 0.25);
+}
+
+.btn-notif.activo:hover {
+  background: rgba(10, 132, 255, 0.15);
+  border-color: rgba(10, 132, 255, 0.4);
+}
+
+/* Botón X para ocultar ProjectPanel */
+.project-header {
+  position: relative;
+}
+
+.project-hide-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-tertiary, #6E6E73);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.project-hide-btn:hover {
+  background: var(--bg-secondary, #F5F5F7);
+  color: var(--text, #1D1D1F);
+  border-color: var(--border-subtle, #D2D2D7);
+}

@@ -1317,6 +1317,54 @@ async def endpoint_agent_project_github(
     return resultado
 
 
+# ===== AGENT DEV: Probar con auto-fix (SSE) =====
+
+@app.post("/agent/projects/{nombre}/test-fix")
+async def endpoint_agent_project_test_fix(
+    nombre: str,
+    usuario: str = Depends(obtener_usuario_actual),
+):
+    """Ejecuta tests del proyecto con autocorrección por IA (SSE)."""
+    from src.agent_dev.tester import ejecutar_tests_con_fix
+
+    raiz = GENERATED_DIR / nombre
+    if not raiz.exists():
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    async def event_generator():
+        cola: asyncio.Queue = asyncio.Queue()
+
+        async def emitir(ev: dict):
+            await cola.put(ev)
+
+        async def worker():
+            try:
+                await ejecutar_tests_con_fix(raiz, emitir)
+            except Exception as e:
+                await cola.put({"tipo": "error_fatal", "mensaje": str(e)})
+            finally:
+                await cola.put(None)
+
+        task = asyncio.create_task(worker())
+
+        try:
+            while True:
+                try:
+                    ev = await asyncio.wait_for(cola.get(), timeout=60)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                if ev is None:
+                    yield 'data: {"tipo":"cerrado"}\n\n'
+                    break
+                yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return _SR(event_generator(), media_type="text/event-stream")
+
+
 # ===== AGENT DEV: Editor inteligente (análisis de impacto) =====
 
 class EditAnalyzeRequest(BaseModel):

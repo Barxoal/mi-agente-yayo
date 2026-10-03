@@ -12,6 +12,8 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+import { notificar } from "./notifications";
+
 interface ArchivoEvento {
   i: number;
   total: number;
@@ -81,6 +83,25 @@ export default function GenerationProgress({
     };
     lanzar();
   }, []);
+
+  // Notificación del SO al terminar la generación
+  useEffect(() => {
+    if (estado === "terminado") {
+      notificar({
+        titulo: "✅ Generación completa",
+        cuerpo: `Proyecto "${nombreProyecto}" generado. ${archivos.filter((a) => a.estado === "ok").length} archivos.`,
+        tag: `niah-gen-${nombreProyecto}`,
+      });
+    } else if (estado === "error") {
+      notificar({
+        titulo: "❌ Error en la generación",
+        cuerpo: `El proyecto "${nombreProyecto}" no se pudo generar.`,
+        tag: `niah-gen-${nombreProyecto}`,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado]);
+
 
   useEffect(() => {
     if (!jobId) return;
