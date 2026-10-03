@@ -46,13 +46,11 @@ def _limpiar_nombre(texto):
         texto = texto.replace(k, v)
     permitidos = "abcdefghijklmnopqrstuvwxyz0123456789- "
     limpio = "".join(c if c in permitidos else "-" for c in texto)
-    # Colapsar espacios y guiones
     limpio = limpio.replace(" ", "-")
     while "--" in limpio:
         limpio = limpio.replace("--", "-")
     limpio = limpio.strip("-")
 
-    # Cortar por palabras completas
     partes = [p for p in limpio.split("-") if p]
     stop = {
         "una", "un", "el", "la", "los", "las", "de", "del", "para",
@@ -63,8 +61,11 @@ def _limpiar_nombre(texto):
         partes = significativas
 
     nombre = "-".join(partes[:5])
-    if len(nombre) > 40:
-        nombre = nombre[:40].rstrip("-")
+    if len(nombre) > 50:
+        recortado = nombre[:50]
+        if "-" in recortado:
+            recortado = recortado.rsplit("-", 1)[0]
+        nombre = recortado.rstrip("-")
     return nombre or "proyecto"
 
 
